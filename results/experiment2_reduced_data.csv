@@ -1,0 +1,28 @@
+station,system,train_mse,train_rmse,val_mse,val_rmse,test_mse,test_rmse,best_alpha
+Helsinki Kaisaniemi,Baseline,58.0759,7.6208,55.8261,7.4717,58.815,7.6691,-
+Turku Artukainen,Baseline,55.4274,7.445,52.734,7.2618,58.8718,7.6728,-
+Oulu Vihreäsaari,Baseline,24.7086,4.9708,24.576,4.9574,22.6464,4.7588,-
+Tampere Härmälä,Baseline,41.1661,6.4161,37.7758,6.1462,44.1397,6.6438,-
+Jyväskylä Airport,Baseline,28.1681,5.3074,25.9377,5.0929,29.2011,5.4038,-
+Kuopio Maaninka,Baseline,28.3622,5.3256,27.022,5.1983,27.4533,5.2396,-
+Rovaniemi Apukka,Baseline,18.0845,4.2526,16.5171,4.0641,19.7614,4.4454,-
+Sodankylä,Baseline,15.089,3.8845,17.8686,4.2271,16.5041,4.0625,-
+Inari Saariselkä,Baseline,10.7511,3.2789,13.4393,3.666,11.1729,3.3426,-
+Helsinki Kaisaniemi,System A,58.0759,7.6208,55.8262,7.4717,58.8151,7.6691,0.0001
+Turku Artukainen,System A,55.4274,7.445,52.734,7.2618,58.8718,7.6728,0.0001
+Oulu Vihreäsaari,System A,24.7086,4.9708,24.576,4.9574,22.6464,4.7588,0.0001
+Tampere Härmälä,System A,41.1661,6.4161,37.7758,6.1462,44.1397,6.6438,0.0001
+Jyväskylä Airport,System A,28.1681,5.3074,25.9377,5.0929,29.2011,5.4038,0.0001
+Kuopio Maaninka,System A,28.3622,5.3256,27.022,5.1983,27.4533,5.2396,0.0001
+Rovaniemi Apukka,System A,18.0845,4.2526,16.5171,4.0641,19.7614,4.4454,0.0001
+Sodankylä,System A,15.089,3.8845,17.8687,4.2271,16.504,4.0625,0.0001
+Inari Saariselkä,System A,10.7511,3.2789,13.4393,3.666,11.1729,3.3426,0.0001
+Helsinki Kaisaniemi,System B,58.0759,7.6208,55.8262,7.4717,58.8151,7.6691,0.0001
+Turku Artukainen,System B,55.4274,7.445,52.734,7.2618,58.8718,7.6728,0.0001
+Oulu Vihreäsaari,System B,24.7086,4.9708,24.576,4.9574,22.6464,4.7588,0.0001
+Tampere Härmälä,System B,41.1661,6.4161,37.7758,6.1462,44.1397,6.6438,0.0001
+Jyväskylä Airport,System B,28.1681,5.3074,25.9377,5.0929,29.2011,5.4038,0.0001
+Kuopio Maaninka,System B,28.3622,5.3256,27.022,5.1983,27.4533,5.2396,0.0001
+Rovaniemi Apukka,System B,18.0845,4.2526,16.5171,4.0641,19.7614,4.4454,0.0001
+Sodankylä,System B,15.089,3.8845,17.8687,4.2271,16.504,4.0625,0.0001
+Inari Saariselkä,System B,10.7511,3.2789,13.4393,3.666,11.1729,3.3426,0.0001

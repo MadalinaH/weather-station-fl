@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Large binary data files - regenerate by running the pipeline
+data/prepared_data.pkl
+data/adj_system_a.npy
+data/adj_system_b.npy
+
+# Raw + processed station CSVs - downloaded from FMI portal
+# See README.md → Data section for download instructions
+data/*.csv

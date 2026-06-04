@@ -1,0 +1,28 @@
+station,system,train_mse,train_rmse,val_mse,val_rmse,test_mse,test_rmse,best_alpha
+Helsinki Kaisaniemi,Baseline,28.8042,5.367,28.4588,5.3347,28.4015,5.3293,-
+Turku Artukainen,Baseline,29.6187,5.4423,31.1459,5.5809,34.6217,5.884,-
+Oulu Vihreäsaari,Baseline,12.0343,3.469,7.3862,2.7178,7.1356,2.6713,-
+Tampere Härmälä,Baseline,20.9818,4.5806,20.6786,4.5474,24.2502,4.9245,-
+Jyväskylä Airport,Baseline,14.7152,3.836,11.6904,3.4191,15.9595,3.9949,-
+Kuopio Maaninka,Baseline,13.6324,3.6922,10.1164,3.1806,13.7009,3.7015,-
+Rovaniemi Apukka,Baseline,17.9839,4.2407,4.7145,2.1713,13.5223,3.6773,-
+Sodankylä,Baseline,16.2528,4.0315,5.8741,2.4237,13.3624,3.6555,-
+Inari Saariselkä,Baseline,15.9376,3.9922,8.2465,2.8717,12.5697,3.5454,-
+Helsinki Kaisaniemi,System A,29.3357,5.4162,23.0918,4.8054,31.4826,5.6109,500.0
+Turku Artukainen,System A,29.7754,5.4567,27.5992,5.2535,33.3234,5.7726,500.0
+Oulu Vihreäsaari,System A,12.463,3.5303,4.73,2.1749,7.4403,2.7277,500.0
+Tampere Härmälä,System A,21.1807,4.6022,20.5421,4.5323,22.0332,4.694,500.0
+Jyväskylä Airport,System A,15.0026,3.8733,12.1288,3.4826,13.0318,3.61,500.0
+Kuopio Maaninka,System A,13.9311,3.7324,11.7834,3.4327,10.9886,3.3149,500.0
+Rovaniemi Apukka,System A,19.111,4.3716,4.592,2.1429,13.0668,3.6148,500.0
+Sodankylä,System A,16.6814,4.0843,5.0458,2.2463,13.4422,3.6664,500.0
+Inari Saariselkä,System A,16.0498,4.0062,9.5826,3.0956,12.9761,3.6022,500.0
+Helsinki Kaisaniemi,System B,29.3303,5.4157,23.1661,4.8131,31.5055,5.613,500.0
+Turku Artukainen,System B,29.7707,5.4563,27.6746,5.2607,33.376,5.7772,500.0
+Oulu Vihreäsaari,System B,12.4602,3.5299,4.7524,2.18,7.4473,2.729,500.0
+Tampere Härmälä,System B,21.1755,4.6017,20.5727,4.5357,22.0761,4.6985,500.0
+Jyväskylä Airport,System B,14.9949,3.8723,12.1328,3.4832,13.0711,3.6154,500.0
+Kuopio Maaninka,System B,13.9245,3.7316,11.7882,3.4334,11.0229,3.3201,500.0
+Rovaniemi Apukka,System B,19.1019,4.3706,4.5832,2.1408,13.063,3.6143,500.0
+Sodankylä,System B,16.6731,4.0833,5.046,2.2463,13.4324,3.665,500.0
+Inari Saariselkä,System B,16.0479,4.006,9.5855,3.096,12.9523,3.5989,500.0
