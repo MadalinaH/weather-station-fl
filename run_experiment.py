@@ -51,6 +51,7 @@ from sklearn.linear_model import Ridge
 
 from fl_algorithm import run_fl
 from evaluate import evaluate
+import hdd_analysis
 
 # Reuse data-preparation helpers from prepare_data.py (no modification needed).
 from prepare_data import load_station, build_xy, split_by_date, normalise
@@ -639,6 +640,18 @@ def main():
 
         # Save per-experiment CSV.
         save_experiment_csv(cfg, result)
+
+        # HDD analysis - Experiment 1 only (full data, best alpha).
+        if cfg["id"] == 1:
+            print("\n" + "=" * 65)
+            print("  HDD Analysis — Experiment 1 (Test Set)")
+            print("=" * 65)
+            hdd_analysis.run(
+                data         = result["data"],
+                weights_base = result["weights_base"],
+                weights_a    = result["weights_a"],
+                weights_b    = result["weights_b"],
+            )
 
         # Per-experiment bar chart.
         exp_id = cfg["id"]

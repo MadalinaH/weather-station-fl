@@ -42,6 +42,10 @@ fl_project/
 ├── run_experiment.py       Phase 6 - orchestrates everything: hyperparameter
 │                           search, three experiments, all figures and CSVs
 │
+├── hdd_analysis.py         Post-processing - converts predicted temperatures
+│                           to Heating Degree Days (HDD) using the FMI standard
+│                           and compares against actual HDD on the test set
+│
 ├── data/
 │   ├── helsinki_kaisaniemi.csv     Clean daily CSVs, one per station
 │   ├── turku_artukainen.csv        columns: date, t2m, tmin, tmax, ws_10min
@@ -68,7 +72,9 @@ fl_project/
 │   ├── experiment1_full_data.csv           Per-station detailed results
 │   ├── experiment2_reduced_data.csv
 │   ├── experiment3_minimal_data.csv
-│   └── combined_summary.csv               Compact summary of all experiments
+│   ├── combined_summary.csv               Compact summary of all experiments
+│   ├── hdd_analysis.csv                   HDD metrics per station per system
+│   └── hdd_per_station.png                Grouped bar chart of mean daily HDD
 │
 ├── requirements.txt        Pinned Python dependencies
 └── .venv/                  Virtual environment
@@ -270,6 +276,17 @@ For each experiment, alpha is tuned independently on the validation set from:
 
 **System A vs System B:** Both systems produce nearly identical results across all experiments. All station pairs within 300 km have strongly positive Pearson correlation (Finnish temperatures all follow the same seasonal cycle), so the correlation multiplier in System B ≈ 1.0 and barely modifies the distance weights.
 
+### Heating Degree Days (HDD)
+
+HDD (Heating Degree Days) quantifies daily heating energy demand. Following the Finnish Meteorological Institute standard (indoor baseline 17 °C, heating threshold 12 °C), predicted temperatures are converted to HDD as a post-processing step:
+
+```
+HDD = max(17 - T, 0)   if T < 12 °C
+HDD = 0                 otherwise
+```
+
+Results are reported for Experiment 1 (full data) test set only. HDD MAE measures how accurately each system estimates daily heating demand - a practical metric for energy planning applications. Results are saved to `results/hdd_analysis.csv` and `results/hdd_per_station.png`.
+
 ---
 
 ## Output Files Reference
@@ -295,6 +312,8 @@ For each experiment, alpha is tuned independently on the validation set from:
 | `test_rmse_by_experiment.png` | Mean test RMSE vs training set size (all systems) |
 | `experiment{1,2,3}_*.csv` | Per-station train/val/test MSE and RMSE for each system |
 | `combined_summary.csv` | Compact summary: all experiments × all systems |
+| `hdd_analysis.csv` | Mean daily HDD and HDD MAE per station per system (Experiment 1 test set) |
+| `hdd_per_station.png` | Grouped bar chart: Actual vs predicted mean daily HDD per station |
 
 ---
 
