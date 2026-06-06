@@ -15,7 +15,7 @@ The core algorithm is **GTVMin** (Graph Total Variation Minimisation), solved vi
 
 Three experiments with different training set sizes test whether FL benefit changes as local data becomes scarce.
 
-**Key finding:** FL improves over the local baseline only when training data is minimal (6 months). With 1–2 years of data per station, local Ridge regression is sufficient.
+**Key finding:** With the current graph (d_max = 200 km, 8 edges), FL does not meaningfully outperform the local baseline in any experiment. A graph sensitivity analysis showed that widening d_max to 300 km (15 edges) produced a marginal improvement in the minimal-data setting (~0.02 °C), suggesting collaboration helps only when the graph is dense enough to carry sufficient signal.
 
 ---
 
@@ -235,16 +235,16 @@ GTVMin has a closed-form solution. Ridge regression finds it exactly in one solv
 **System A - Distance graph**
 
 ```
-A[i,j] = exp(-d²  / (2 × 150²))   if d ≤ 300 km
+A[i,j] = exp(-d²  / (2 × 100²))   if d ≤ 200 km
         = 0                         otherwise
 ```
 
-Pure geography: stations within 300 km collaborate, weighted by a Gaussian decay.
+Pure geography: stations within 200 km collaborate, weighted by a Gaussian decay. This is the strictest viable threshold - all 9 stations remain connected with 8 edges.
 
 **System B - Correlation graph**
 
 ```
-A[i,j] = max(0, pearson_corr(T_i, T_j)) × exp(-d² / (2 × 150²))   if d ≤ 300 km
+A[i,j] = max(0, pearson_corr(T_i, T_j)) × exp(-d² / (2 × 100²))   if d ≤ 200 km
         = 0                                                           otherwise
 ```
 
@@ -276,16 +276,18 @@ For each experiment, alpha is tuned independently on the validation set from:
 | Reduced data | System A | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 |
 | Reduced data | System B | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 |
 | Minimal data | Baseline | 4.14 °C | 2.64 °C | 3.23 °C | — |
-| Minimal data | System A | 4.17 °C | 2.60 °C | **3.21 °C** | 50 |
-| Minimal data | System B | 4.17 °C | 2.60 °C | **3.21 °C** | 50 |
+| Minimal data | System A | 4.16 °C | 2.62 °C | 3.23 °C | 100 |
+| Minimal data | System B | 4.16 °C | 2.62 °C | 3.23 °C | 100 |
 
 ### Interpretation
 
-**Experiment 1 & 2 (Full and Reduced data):** FL makes no meaningful difference. With 1–2 years of training data, each station already has enough observations to fit a good local model. The hyperparameter search selects near-zero alpha (Exp 2) or very large alpha (Exp 1 - neighbourhood pull dominates the trivially small per-station variation), both converging to nearly identical results.
+**Experiment 1 & 2 (Full and Reduced data):** FL makes no meaningful difference. With 1–2 years of training data, each station already has enough observations to fit a good local model. The hyperparameter search selects near-zero alpha (0.0001) - the regularisation toward neighbours is switched off and FL degenerates to local Ridge.
 
-**Experiment 3 (Minimal data - 6 months):** FL provides a genuine improvement. System A reduces test RMSE from 3.23 °C (Baseline) to 3.21 °C (~1% improvement). With only 181 training days, borrowing signal from geographic neighbours compensates for the limited local dataset. This is the fundamental FL motivation: **collaboration helps most when local data is scarce**.
+**Experiment 3 (Minimal data - 6 months):** FL provides no improvement with the current graph (d_max = 200 km, 8 edges). System A and System B both match the Baseline at 3.23 °C. The graph sensitivity analysis found that a wider graph (d_max = 300 km, 15 edges) produced a marginal gain (~0.02 °C) in this setting - the longer-range connections removed when tightening to 200 km were the ones contributing collaboration signal. With only 181 training days, the graph needs to be dense enough to compensate for the limited local data.
 
-**System A vs System B:** Both systems produce nearly identical results across all experiments. All station pairs within 300 km have strongly positive Pearson correlation (Finnish temperatures all follow the same seasonal cycle), so the correlation multiplier in System B ≈ 1.0 and barely modifies the distance weights.
+**System A vs System B:** Identical results across all experiments. All station pairs within 200 km have strongly positive Pearson correlation (Finnish temperatures follow the same seasonal cycle), so the correlation multiplier in System B ≈ 1.0 and the two graphs are effectively the same.
+
+**Graph parameters:** d_max = 200 km, σ = 100 km (strictest viable threshold — all 9 stations connected with 8 edges, as determined by `graph_sensitivity.py`). The production graph previously used d_max = 300 km / σ = 150 km.
 
 ### Heating Degree Days (HDD)
 

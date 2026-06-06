@@ -29,8 +29,9 @@ System B - Correlation graph:
 
 PARAMETERS
 ----------
-    d_max = 300 km   - maximum distance for an edge to exist
-    sigma = 150 km   - Gaussian width (weight = ~0.14 at d = d_max)
+    d_max = 200 km   - maximum distance for an edge to exist
+                       (strictest viable threshold: all 9 stations connected)
+    sigma = 100 km   - Gaussian width (weight = ~0.14 at d = d_max)
 
 OUTPUT
 ------
@@ -75,9 +76,12 @@ STATION_COORDS = {
 STATIONS = list(STATION_COORDS.keys())
 N = len(STATIONS)   # 9
 
-# Graph construction hyperparameters (from project spec).
-D_MAX_KM = 300.0    # maximum distance for an edge to exist [km]
-SIGMA_KM = 150.0    # Gaussian width parameter [km]
+# Graph construction hyperparameters.
+# Updated from d_max=300/sigma=150 to d_max=200/sigma=100 based on the
+# graph sensitivity analysis (graph_sensitivity.py): 200 km is the
+# strictest viable threshold that keeps all 9 stations connected.
+D_MAX_KM = 200.0    # maximum distance for an edge to exist [km]
+SIGMA_KM = 100.0    # Gaussian width parameter [km]
 
 # Training period for Pearson correlation (System B).
 # Correlations are computed on training data ONLY to avoid data leakage.
