@@ -15,7 +15,7 @@ The core algorithm is **GTVMin** (Graph Total Variation Minimisation), solved vi
 
 Three experiments with different training set sizes test whether FL benefit changes as local data becomes scarce.
 
-**Key finding:** With the current graph (d_max = 200 km, 8 edges), FL does not meaningfully outperform the local baseline in any experiment. A graph sensitivity analysis showed that widening d_max to 300 km (15 edges) produced a marginal improvement in the minimal-data setting (~0.02 °C), suggesting collaboration helps only when the graph is dense enough to carry sufficient signal.
+**Key finding:** Tuning sigma alongside alpha does not change the main conclusion - FL does not meaningfully outperform the local baseline with d_max = 200 km. The joint search selects sigma = 50 km (near-zero regularisation) for Experiments 1 and 2, and sigma = 150 km for Experiment 3 but still fails to beat the baseline on the test set. The fixed sigma = dmax/2 = 100 km rule was already sufficient.
 
 ---
 
@@ -267,27 +267,29 @@ For each experiment, alpha is tuned independently on the validation set from:
 
 ### Combined summary (mean RMSE across all 9 stations)
 
-| Experiment | System | Train RMSE | Val RMSE | Test RMSE | Best α |
-|---|---|---|---|---|---|
-| Full data | Baseline | 5.16 °C | 5.56 °C | 5.30 °C | — |
-| Full data | System A | 5.16 °C | 5.56 °C | 5.30 °C | 0.0001 |
-| Full data | System B | 5.16 °C | 5.56 °C | 5.30 °C | 0.0001 |
-| Reduced data | Baseline | 5.32 °C | 5.51 °C | 5.14 °C | — |
-| Reduced data | System A | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 |
-| Reduced data | System B | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 |
-| Minimal data | Baseline | 4.14 °C | 2.64 °C | 3.23 °C | — |
-| Minimal data | System A | 4.16 °C | 2.62 °C | 3.23 °C | 100 |
-| Minimal data | System B | 4.16 °C | 2.62 °C | 3.23 °C | 100 |
+| Experiment | System | Train RMSE | Val RMSE | Test RMSE | Best α | Best σ |
+|---|---|---|---|---|---|---|
+| Full data | Baseline | 5.16 °C | 5.56 °C | 5.30 °C | 100 | — |
+| Full data | System A | 5.16 °C | 5.56 °C | 5.30 °C | 0.0001 | 50 km |
+| Full data | System B | 5.16 °C | 5.56 °C | 5.30 °C | 0.0001 | 50 km |
+| Reduced data | Baseline | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 | — |
+| Reduced data | System A | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 | 50 km |
+| Reduced data | System B | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 | 50 km |
+| Minimal data | Baseline | 4.14 °C | 2.64 °C | 3.23 °C | 0.5 | — |
+| Minimal data | System A | 4.17 °C | 2.62 °C | 3.24 °C | 100 | 150 km |
+| Minimal data | System B | 4.17 °C | 2.62 °C | 3.24 °C | 100 | 150 km |
 
 ### Interpretation
 
-**Experiment 1 & 2 (Full and Reduced data):** FL makes no meaningful difference. With 1–2 years of training data, each station already has enough observations to fit a good local model. The hyperparameter search selects near-zero alpha (0.0001) - the regularisation toward neighbours is switched off and FL degenerates to local Ridge.
+**Experiment 1 & 2 (Full and Reduced data):** FL makes no meaningful difference. With 1-2 years of training data each station fits a good local model. The joint search selects alpha = 0.0001 and sigma = 50 km - near-zero regularisation, effectively switching off graph collaboration.
 
-**Experiment 3 (Minimal data - 6 months):** FL provides no improvement with the current graph (d_max = 200 km, 8 edges). System A and System B both match the Baseline at 3.23 °C. The graph sensitivity analysis found that a wider graph (d_max = 300 km, 15 edges) produced a marginal gain (~0.02 °C) in this setting - the longer-range connections removed when tightening to 200 km were the ones contributing collaboration signal. With only 181 training days, the graph needs to be dense enough to compensate for the limited local data.
+**Experiment 3 (Minimal data - 6 months):** FL does not improve over the baseline on the test set (3.24 °C vs 3.23 °C). The joint search selects alpha = 100, sigma = 150 km, which improves validation RMSE (2.62 °C vs 2.64 °C) but does not transfer to the test set. With d_max = 200 km and only 8 edges, the graph is too sparse to carry enough collaboration signal.
 
-**System A vs System B:** Identical results across all experiments. All station pairs within 200 km have strongly positive Pearson correlation (Finnish temperatures follow the same seasonal cycle), so the correlation multiplier in System B ≈ 1.0 and the two graphs are effectively the same.
+**Sigma tuning:** The joint (alpha, sigma) search did not improve over the fixed sigma = dmax/2 = 100 km rule. For Experiments 1 and 2 the selected sigma = 50 km (narrowest kernel) confirms collaboration is unhelpful with abundant data. The heatmap (`results/sigma_heatmap_exp3.png`) shows performance is flat across most of the (alpha, sigma) grid - the task is not sensitive to sigma within the tested range.
 
-**Graph parameters:** d_max = 200 km, σ = 100 km (strictest viable threshold — all 9 stations connected with 8 edges, as determined by `graph_sensitivity.py`). The production graph previously used d_max = 300 km / σ = 150 km.
+**System A vs System B:** Identical across all experiments and sigma values. All station pairs within 200 km have strongly positive Pearson correlation, so the System B correlation multiplier ≈ 1.0 everywhere.
+
+**Graph parameters:** d_max = 200 km fixed (strictest viable threshold - all 9 stations connected with 8 edges, from `graph_sensitivity.py`). sigma tuned per experiment via joint grid search.
 
 ### Heating Degree Days (HDD)
 
@@ -327,6 +329,8 @@ Results are reported for Experiment 1 (full data) test set only. HDD MAE measure
 | `combined_summary.csv` | Compact summary: all experiments × all systems |
 | `hdd_analysis.csv` | Mean daily HDD and HDD MAE per station per system (Experiment 1 test set) |
 | `hdd_per_station.png` | Grouped bar chart: Actual vs predicted mean daily HDD per station |
+| `sigma_heatmap_exp3.png` | Heatmap of val RMSE over (alpha, sigma) grid - Experiment 3, System A |
+| `combined_summary_dmax300.csv` | Preserved results from the d_max = 300 km run (for comparison) |
 
 ---
 

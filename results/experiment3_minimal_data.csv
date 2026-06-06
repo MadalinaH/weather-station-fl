@@ -1,28 +1,28 @@
-station,system,train_mse,train_rmse,val_mse,val_rmse,test_mse,test_rmse,best_alpha
-Helsinki Kaisaniemi,Baseline,28.9868,5.3839,15.6737,3.959,16.8892,4.1096,-
-Turku Artukainen,Baseline,29.7533,5.4547,11.6447,3.4124,15.1999,3.8987,-
-Oulu Vihreäsaari,Baseline,10.2125,3.1957,3.2388,1.7997,4.8814,2.2094,-
-Tampere Härmälä,Baseline,20.7114,4.551,5.8209,2.4127,9.198,3.0328,-
-Jyväskylä Airport,Baseline,13.8614,3.7231,3.6253,1.904,6.6104,2.5711,-
-Kuopio Maaninka,Baseline,12.9534,3.5991,3.684,1.9194,6.8242,2.6123,-
-Rovaniemi Apukka,Baseline,15.7185,3.9647,6.0376,2.4572,11.9843,3.4618,-
-Sodankylä,Baseline,13.8597,3.7229,6.7419,2.5965,12.1194,3.4813,-
-Inari Saariselkä,Baseline,13.6822,3.6989,10.9507,3.3092,13.4602,3.6688,-
-Helsinki Kaisaniemi,System A,29.1461,5.3987,13.9752,3.7383,15.3229,3.9145,100.0
-Turku Artukainen,System A,29.8137,5.4602,11.3897,3.3749,15.3391,3.9165,100.0
-Oulu Vihreäsaari,System A,10.5282,3.2447,2.8792,1.6968,4.9761,2.2307,100.0
-Tampere Härmälä,System A,20.7248,4.5525,6.3911,2.5281,9.7662,3.1251,100.0
-Jyväskylä Airport,System A,13.8977,3.728,3.5453,1.8829,6.8691,2.6209,100.0
-Kuopio Maaninka,System A,12.988,3.6039,3.6628,1.9138,6.6188,2.5727,100.0
-Rovaniemi Apukka,System A,16.1728,4.0215,5.4854,2.3421,11.989,3.4625,100.0
-Sodankylä,System A,13.9172,3.7306,6.76,2.6,12.3975,3.521,100.0
-Inari Saariselkä,System A,13.8346,3.7195,12.1815,3.4902,13.6304,3.6919,100.0
-Helsinki Kaisaniemi,System B,29.146,5.3987,13.9824,3.7393,15.3254,3.9148,100.0
-Turku Artukainen,System B,29.8135,5.4602,11.3881,3.3746,15.3346,3.9159,100.0
-Oulu Vihreäsaari,System B,10.5233,3.244,2.8836,1.6981,4.9745,2.2304,100.0
-Tampere Härmälä,System B,20.7247,4.5524,6.3876,2.5274,9.7632,3.1246,100.0
-Jyväskylä Airport,System B,13.8975,3.7279,3.5451,1.8828,6.8689,2.6209,100.0
-Kuopio Maaninka,System B,12.9878,3.6039,3.6626,1.9138,6.62,2.5729,100.0
-Rovaniemi Apukka,System B,16.167,4.0208,5.4812,2.3412,11.9815,3.4614,100.0
-Sodankylä,System B,13.9157,3.7304,6.759,2.5998,12.3926,3.5203,100.0
-Inari Saariselkä,System B,13.8368,3.7198,12.1808,3.4901,13.6242,3.6911,100.0
+station,system,train_mse,train_rmse,val_mse,val_rmse,test_mse,test_rmse,best_alpha,best_sigma
+Helsinki Kaisaniemi,Baseline,28.9868,5.3839,15.6737,3.959,16.8892,4.1096,0.5,-
+Turku Artukainen,Baseline,29.7533,5.4547,11.6447,3.4124,15.1999,3.8987,0.5,-
+Oulu Vihreäsaari,Baseline,10.2125,3.1957,3.2388,1.7997,4.8814,2.2094,0.5,-
+Tampere Härmälä,Baseline,20.7114,4.551,5.8209,2.4127,9.198,3.0328,0.5,-
+Jyväskylä Airport,Baseline,13.8614,3.7231,3.6253,1.904,6.6104,2.5711,0.5,-
+Kuopio Maaninka,Baseline,12.9534,3.5991,3.684,1.9194,6.8242,2.6123,0.5,-
+Rovaniemi Apukka,Baseline,15.7185,3.9647,6.0376,2.4572,11.9843,3.4618,0.5,-
+Sodankylä,Baseline,13.8597,3.7229,6.7419,2.5965,12.1194,3.4813,0.5,-
+Inari Saariselkä,Baseline,13.6822,3.6989,10.9507,3.3092,13.4602,3.6688,0.5,-
+Helsinki Kaisaniemi,System A,29.152,5.3993,13.5249,3.6776,15.2231,3.9017,100.0,150.0
+Turku Artukainen,System A,29.8244,5.4612,11.5126,3.393,15.5726,3.9462,100.0,150.0
+Oulu Vihreäsaari,System A,10.6586,3.2647,2.7632,1.6623,5.0453,2.2462,100.0,150.0
+Tampere Härmälä,System A,20.7285,4.5529,6.5989,2.5688,9.9179,3.1493,100.0,150.0
+Jyväskylä Airport,System A,13.9072,3.7292,3.559,1.8865,6.8834,2.6236,100.0,150.0
+Kuopio Maaninka,System A,12.9972,3.6052,3.6778,1.9178,6.5558,2.5604,100.0,150.0
+Rovaniemi Apukka,System A,16.3367,4.0419,5.5856,2.3634,12.2227,3.4961,100.0,150.0
+Sodankylä,System A,13.968,3.7374,6.7725,2.6024,12.5454,3.5419,100.0,150.0
+Inari Saariselkä,System A,13.7838,3.7127,12.2406,3.4987,13.7959,3.7143,100.0,150.0
+Helsinki Kaisaniemi,System B,29.1519,5.3993,13.5346,3.6789,15.2242,3.9018,100.0,150.0
+Turku Artukainen,System B,29.8241,5.4611,11.5097,3.3926,15.5663,3.9454,100.0,150.0
+Oulu Vihreäsaari,System B,10.6527,3.2638,2.7688,1.664,5.0408,2.2452,100.0,150.0
+Tampere Härmälä,System B,20.7284,4.5528,6.5941,2.5679,9.9146,3.1487,100.0,150.0
+Jyväskylä Airport,System B,13.907,3.7292,3.5585,1.8864,6.8834,2.6236,100.0,150.0
+Kuopio Maaninka,System B,12.997,3.6051,3.6773,1.9176,6.5573,2.5607,100.0,150.0
+Rovaniemi Apukka,System B,16.3294,4.041,5.581,2.3624,12.2102,3.4943,100.0,150.0
+Sodankylä,System B,13.9655,3.737,6.7703,2.602,12.5377,3.5409,100.0,150.0
+Inari Saariselkä,System B,13.7856,3.7129,12.2376,3.4982,13.7882,3.7132,100.0,150.0

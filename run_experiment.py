@@ -22,9 +22,24 @@ EXPERIMENTS
 
 HYPERPARAMETER SEARCH
 ---------------------
-  Candidates : [0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100, 500]
+  Baseline  : alpha-only grid search (12 candidates).
+  System A  : joint (alpha, sigma) grid search - 12 × 7 = 84 combinations.
+  System B  : joint (alpha, sigma) grid search - 84 combinations.
+
+  dmax is fixed at 200 km (strictest viable threshold).
+  sigma controls Gaussian edge-weight decay within dmax.
+
+  For System B, the Pearson correlation matrix is computed once per
+  experiment on the training data, then combined with each sigma's
+  Gaussian weights - avoiding redundant CSV reads.
+
   Criterion  : mean validation MSE (test set never seen during tuning)
-  Best alpha selected independently per system per experiment.
+  Best (alpha, sigma) selected independently per system per experiment.
+
+GRAPH PARAMETERS
+----------------
+  dmax  = 200 km   (fixed - from graph sensitivity analysis)
+  sigma = tuned    (candidates: 50, 75, 100, 125, 150, 175, 200 km)
 
 OUTPUT FILES
 ------------
@@ -33,10 +48,11 @@ OUTPUT FILES
   results/experiment3_minimal_data.csv
   results/combined_summary.csv
   results/test_rmse_by_experiment.png
-  results/test_rmse_by_station_exp1.png
-  results/test_rmse_by_station_exp2.png
-  results/test_rmse_by_station_exp3.png
+  results/test_rmse_by_station_exp{1,2,3}.png
   results/convergence_exp1.png
+  results/sigma_heatmap_exp3.png      val RMSE heatmap over (alpha, sigma)
+  data/adj_system_a.npy               updated with best sigma from Experiment 1
+  data/adj_system_b.npy               updated with best sigma from Experiment 1
 
 Usage:
     python run_experiment.py
@@ -53,26 +69,26 @@ from fl_algorithm import run_fl
 from evaluate import evaluate
 import hdd_analysis
 
-# Reuse data-preparation helpers from prepare_data.py (no modification needed).
 from prepare_data import load_station, build_xy, split_by_date, normalise
-
-# Reuse graph-building helpers from build_network.py.
 from build_network import (
     build_distance_matrix,
-    build_adj_system_a,
-    build_adj_system_b,
     STATIONS as STATION_NAMES,
     STATION_FILES,
+    N as N_STATIONS,
 )
+from graph_sensitivity import build_graph
 
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Extended alpha search range.
+DMAX_KM = 200.0   # fixed - from graph sensitivity analysis
+
 ALPHA_CANDIDATES = [0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0,
                     10.0, 50.0, 100.0, 500.0]
+
+SIGMA_CANDIDATES = [50.0, 75.0, 100.0, 125.0, 150.0, 175.0, 200.0]
 
 T_ROUNDS    = 50
 RANDOM_SEED = 42
@@ -82,8 +98,6 @@ RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results"
 
 np.random.seed(RANDOM_SEED)
 
-# Three experiment configurations.
-# Each entry: (label, train_start, train_end, val_start, val_end, test_start, test_end)
 EXPERIMENTS = [
     {
         "id"          : 1,
@@ -113,99 +127,115 @@ EXPERIMENTS = [
 
 
 # ---------------------------------------------------------------------------
-# Data preparation for a specific experiment
+# Data preparation
 # ---------------------------------------------------------------------------
 
 def prepare_experiment_data(cfg: dict) -> dict:
     """
     Build train/val/test splits for all 9 stations using the date boundaries
     defined in experiment config cfg.
-
-    Reuses load_station, build_xy, split_by_date, and normalise from
-    prepare_data.py - no data is modified, only the split boundaries change.
-
-    Parameters
-    ----------
-    cfg : one entry from EXPERIMENTS dict
-
-    Returns
-    -------
-    Prepared data dict {station_name: {X_train, y_train, X_val, y_val,
-                                       X_test, y_test}}
     """
     data = {}
     for station, filename in STATION_FILES.items():
-        csv_path = os.path.join(DATA_DIR, filename)
-        df                = load_station(csv_path)
-        X, y, dates       = build_xy(df)
-        splits            = split_by_date(X, y, dates,
-                                          train_start=cfg["train_start"],
-                                          train_end=cfg["train_end"],
-                                          val_start=cfg["val_start"],
-                                          val_end=cfg["val_end"],
-                                          test_start=cfg["test_start"],
-                                          test_end=cfg["test_end"])
-        splits            = normalise(splits)
-        data[station]     = splits
+        csv_path      = os.path.join(DATA_DIR, filename)
+        df            = load_station(csv_path)
+        X, y, dates   = build_xy(df)
+        splits        = split_by_date(X, y, dates,
+                                      train_start=cfg["train_start"],
+                                      train_end=cfg["train_end"],
+                                      val_start=cfg["val_start"],
+                                      val_end=cfg["val_end"],
+                                      test_start=cfg["test_start"],
+                                      test_end=cfg["test_end"])
+        splits        = normalise(splits)
+        data[station] = splits
     return data
 
 
 # ---------------------------------------------------------------------------
-# Build System B adjacency matrix for a specific training period
+# Pearson correlation matrix (System B - computed once per experiment)
 # ---------------------------------------------------------------------------
 
-def build_system_b_for_experiment(cfg: dict, D: np.ndarray) -> np.ndarray:
+def compute_pearson_matrix(cfg: dict, D: np.ndarray) -> np.ndarray:
     """
-    Compute System B adjacency matrix using only the training data from
-    this experiment's training period.
+    Compute the 9×9 Pearson correlation matrix for System B using only
+    the training data from this experiment's training period.
 
-    System B weights include Pearson correlation, which must be computed
-    on training data only to avoid leaking future information into the
-    graph structure.  Each experiment has a different training window,
-    so we recompute the correlation - and therefore the full adj matrix -
-    for each experiment separately.
+    The correlations are clamped to [0, 1] (negative correlations → 0).
+    This matrix is independent of sigma - it is computed once per experiment
+    and then multiplied by the Gaussian weights for each sigma candidate.
 
     Parameters
     ----------
     cfg : experiment config dict (contains train_start / train_end)
-    D   : pairwise distance matrix (shared across experiments)
+    D   : pairwise distance matrix, shape (9, 9) - used only for ordering
 
     Returns
     -------
-    np.ndarray of shape (9, 9) - System B adjacency matrix for this experiment
+    np.ndarray of shape (9, 9) - clamped Pearson correlations, diagonal 0.
     """
-    # Load t2m for the training period of this experiment only.
+    # Load t2m for the training period only.
     t2m_series = {}
     for station, filename in STATION_FILES.items():
         csv_path = os.path.join(DATA_DIR, filename)
-        df = pd.read_csv(csv_path, parse_dates=["date"])
-        mask = ((df["date"] >= cfg["train_start"]) &
-                (df["date"] <= cfg["train_end"]))
-        s = df.loc[mask, ["date", "t2m"]].set_index("date")["t2m"].dropna()
+        df   = pd.read_csv(csv_path, parse_dates=["date"])
+        mask = (df["date"] >= cfg["train_start"]) & (df["date"] <= cfg["train_end"])
+        s    = df.loc[mask, ["date", "t2m"]].set_index("date")["t2m"].dropna()
         t2m_series[station] = s
 
-    return build_adj_system_b(D, t2m_series)
+    stations   = list(STATION_FILES.keys())
+    corr_matrix = np.zeros((N_STATIONS, N_STATIONS))
+
+    for i, s1 in enumerate(stations):
+        for j, s2 in enumerate(stations):
+            if i == j:
+                continue
+            common = t2m_series[s1].index.intersection(t2m_series[s2].index)
+            if len(common) < 2:
+                continue
+            t1   = t2m_series[s1].loc[common].values
+            t2   = t2m_series[s2].loc[common].values
+            corr = float(np.corrcoef(t1, t2)[0, 1])
+            corr_matrix[i, j] = max(0.0, corr) if not np.isnan(corr) else 0.0
+
+    np.fill_diagonal(corr_matrix, 0.0)
+    return corr_matrix
+
+
+def build_system_b_sigma(corr_matrix: np.ndarray,
+                          D: np.ndarray,
+                          sigma: float) -> np.ndarray:
+    """
+    Build System B adjacency matrix for a given sigma using a precomputed
+    Pearson correlation matrix.
+
+        A[i,j] = corr[i,j] * exp(-d² / (2*sigma²))   if d <= DMAX_KM
+               = 0                                      otherwise
+
+    Parameters
+    ----------
+    corr_matrix : clamped Pearson matrix from compute_pearson_matrix()
+    D           : pairwise distance matrix [km]
+    sigma       : Gaussian width [km]
+
+    Returns
+    -------
+    np.ndarray of shape (9, 9)
+    """
+    A_dist, _ = build_graph(D, DMAX_KM, sigma)   # distance-only Gaussian
+    A         = corr_matrix * A_dist
+    np.fill_diagonal(A, 0.0)
+    return A
 
 
 # ---------------------------------------------------------------------------
-# Baseline: local Ridge per station, no collaboration
+# Baseline
 # ---------------------------------------------------------------------------
 
 def run_baseline(data: dict) -> dict:
     """
-    Fit an independent Ridge regression per station on its own training
-    data only.  No graph, no collaboration.
-
-    Uses alpha=1e-6 to approximate OLS while keeping Ridge numerically
-    stable.
-
-    Parameters
-    ----------
-    data : prepared data dict
-
-    Returns
-    -------
-    dict {station_name: weight vector np.ndarray shape (3,)}
+    Fit an independent Ridge regression per station (alpha=1e-6 ≈ OLS).
+    No graph, no collaboration.
     """
     weights = {}
     for station, splits in data.items():
@@ -216,39 +246,30 @@ def run_baseline(data: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Hyperparameter search
+# Hyperparameter search - alpha only (Baseline)
 # ---------------------------------------------------------------------------
 
-def hyperparameter_search(data: dict,
-                          adj_matrix: np.ndarray,
-                          system_name: str) -> tuple:
+def hyperparameter_search_alpha(data: dict,
+                                 adj_matrix: np.ndarray,
+                                 system_name: str) -> tuple:
     """
-    Grid search over ALPHA_CANDIDATES, choosing the alpha with the lowest
-    mean validation MSE.
+    Grid search over ALPHA_CANDIDATES for a fixed adjacency matrix.
+    Used by Baseline (no graph - adj_matrix ignored) via alpha ≈ 0.
 
-    Parameters
-    ----------
-    data        : prepared data dict
-    adj_matrix  : adjacency matrix for the system being tuned
-    system_name : display label ('System A' or 'System B')
-
-    Returns
-    -------
-    best_alpha   : float
-    val_mse_list : list of (alpha, val_mse) for all candidates
+    Returns best_alpha, list of (alpha, val_mse).
     """
     print(f"\n    Hyperparameter search — {system_name}")
     print(f"    {'Alpha':>10s}  {'Val MSE':>10s}  {'Val RMSE':>10s}")
     print("    " + "-" * 37)
 
-    val_mse_list = []
-    best_alpha   = None
-    best_mse     = np.inf
+    best_alpha = None
+    best_mse   = np.inf
+    results    = []
 
     for alpha in ALPHA_CANDIDATES:
         weights, _ = run_fl(data, adj_matrix, alpha=alpha, T=T_ROUNDS)
         _, mean_mse, mean_rmse = evaluate(data, weights, split="val")
-        val_mse_list.append((alpha, mean_mse))
+        results.append((alpha, mean_mse))
 
         marker = "  ←" if mean_mse < best_mse else ""
         print(f"    {alpha:>10.4f}  {mean_mse:>10.4f}  {mean_rmse:>10.4f}{marker}")
@@ -258,71 +279,143 @@ def hyperparameter_search(data: dict,
             best_alpha = alpha
 
     print(f"    Best alpha = {best_alpha}")
-    return best_alpha, val_mse_list
+    return best_alpha, results
+
+
+# ---------------------------------------------------------------------------
+# Hyperparameter search - joint (alpha, sigma) for System A and B
+# ---------------------------------------------------------------------------
+
+def hyperparameter_search_joint(data: dict,
+                                 D: np.ndarray,
+                                 corr_matrix,   # np.ndarray or None
+                                 system_name: str) -> tuple:
+    """
+    Joint grid search over ALPHA_CANDIDATES × SIGMA_CANDIDATES.
+
+    For System A (corr_matrix=None): builds A = build_graph(D, DMAX_KM, sigma).
+    For System B (corr_matrix given): builds A = corr_matrix * gaussian(sigma).
+
+    Parameters
+    ----------
+    data        : prepared data dict
+    D           : pairwise distance matrix [km]
+    corr_matrix : Pearson matrix for System B; None for System A
+    system_name : display label
+
+    Returns
+    -------
+    best_alpha   : float
+    best_sigma   : float
+    grid_results : list of (alpha, sigma, val_mse) - all 84 evaluations
+    """
+    n_combos = len(ALPHA_CANDIDATES) * len(SIGMA_CANDIDATES)
+    print(f"\n    Joint (alpha, sigma) search — {system_name}  [{n_combos} combinations]")
+    print(f"    {'Alpha':>10s}  {'Sigma':>8s}  {'Val MSE':>10s}  {'Val RMSE':>10s}")
+    print("    " + "-" * 47)
+
+    best_alpha   = None
+    best_sigma   = None
+    best_mse     = np.inf
+    grid_results = []
+
+    for sigma in SIGMA_CANDIDATES:
+        # Build adjacency matrix for this sigma.
+        if corr_matrix is None:
+            A, _ = build_graph(D, DMAX_KM, sigma)
+        else:
+            A = build_system_b_sigma(corr_matrix, D, sigma)
+
+        for alpha in ALPHA_CANDIDATES:
+            weights, _ = run_fl(data, A, alpha=alpha, T=T_ROUNDS)
+            _, mean_mse, mean_rmse = evaluate(data, weights, split="val")
+            grid_results.append((alpha, sigma, mean_mse))
+
+            marker = "  ←" if mean_mse < best_mse else ""
+            print(f"    {alpha:>10.4f}  {sigma:>8.1f}  "
+                  f"{mean_mse:>10.4f}  {mean_rmse:>10.4f}{marker}")
+
+            if mean_mse < best_mse:
+                best_mse   = mean_mse
+                best_alpha = alpha
+                best_sigma = sigma
+
+    print(f"    Best alpha = {best_alpha}  |  Best sigma = {best_sigma} km")
+    return best_alpha, best_sigma, grid_results
 
 
 # ---------------------------------------------------------------------------
 # Run one complete experiment
 # ---------------------------------------------------------------------------
 
-def run_one_experiment(cfg: dict, D: np.ndarray, A_a: np.ndarray) -> dict:
+def run_one_experiment(cfg: dict, D: np.ndarray) -> dict:
     """
     Run the full pipeline for a single experiment configuration:
       1. Prepare data with experiment-specific split dates.
-      2. Build System B adj matrix on this experiment's training data.
-      3. Hyperparameter search for System A and System B.
-      4. Final training with best alpha.
-      5. Baseline fitting.
+      2. Compute Pearson correlation matrix for System B (training data only).
+      3. Joint (alpha, sigma) search for System A and System B.
+      4. Alpha-only search for Baseline.
+      5. Final training with best parameters.
       6. Evaluate all three systems on train / val / test.
 
     Parameters
     ----------
     cfg : experiment config dict
     D   : pairwise distance matrix (precomputed, shared)
-    A_a : System A adjacency matrix (fixed, shared across experiments)
 
     Returns
     -------
-    dict with keys:
-      data          : prepared data for this experiment
-      A_b           : System B adj matrix recomputed for this experiment
-      weights_*     : trained weight dicts
-      mse_history_* : training MSE histories
-      metrics       : {system: {split: (mse, rmse)}}
-      per_station_* : per-station evaluate() dicts for test split
-      best_alpha_a/b: chosen alpha values
+    result dict with keys: data, weights_*, mse_history_*, metrics,
+    per_station_*, best_alpha_a/b, best_sigma_a/b, A_a, A_b,
+    grid_results_a/b.
     """
-    label = cfg["label"]
     print(f"\n  Preparing data ({cfg['train_start']} → {cfg['train_end']}) …")
-    data = prepare_experiment_data(cfg)
-
-    n_train = len(data[list(data.keys())[0]]["y_train"])
-    n_val   = len(data[list(data.keys())[0]]["y_val"])
-    n_test  = len(data[list(data.keys())[0]]["y_test"])
+    data    = prepare_experiment_data(cfg)
+    station = list(data.keys())[0]
     print(f"  Split sizes (first station): "
-          f"train={n_train}  val={n_val}  test={n_test}")
+          f"train={len(data[station]['y_train'])}  "
+          f"val={len(data[station]['y_val'])}  "
+          f"test={len(data[station]['y_test'])}")
 
-    # System B adj matrix recomputed on this experiment's training data.
-    print(f"  Building System B graph (corr on {cfg['train_start']}–{cfg['train_end']}) …")
-    A_b = build_system_b_for_experiment(cfg, D)
-    n_edges_b = int(np.sum(np.triu(A_b, k=1) > 0))
-    print(f"  System B edges: {n_edges_b}")
+    # Pearson correlation matrix for System B (computed once per experiment).
+    print(f"  Computing Pearson correlation matrix "
+          f"({cfg['train_start']} → {cfg['train_end']}) …")
+    corr_matrix = compute_pearson_matrix(cfg, D)
 
-    # Hyperparameter search.
-    best_alpha_a, _ = hyperparameter_search(data, A_a, "System A")
-    best_alpha_b, _ = hyperparameter_search(data, A_b, "System B")
+    # Joint (alpha, sigma) search for System A.
+    best_alpha_a, best_sigma_a, grid_a = hyperparameter_search_joint(
+        data, D, corr_matrix=None, system_name="System A"
+    )
+
+    # Joint (alpha, sigma) search for System B.
+    best_alpha_b, best_sigma_b, grid_b = hyperparameter_search_joint(
+        data, D, corr_matrix=corr_matrix, system_name="System B"
+    )
+
+    # Alpha-only search for Baseline (sigma irrelevant - no graph).
+    # Use a zero adjacency matrix so run_fl degenerates to local Ridge.
+    A_zero = np.zeros((N_STATIONS, N_STATIONS))
+    best_alpha_base, _ = hyperparameter_search_alpha(
+        data, A_zero, system_name="Baseline"
+    )
+
+    # Build final adjacency matrices with best sigma.
+    A_a, _ = build_graph(D, DMAX_KM, best_sigma_a)
+    A_b     = build_system_b_sigma(corr_matrix, D, best_sigma_b)
 
     # Final training.
-    print(f"\n    Final training — System A (alpha={best_alpha_a}) …")
+    print(f"\n    Final training — System A "
+          f"(alpha={best_alpha_a}, sigma={best_sigma_a} km) …")
     weights_a, mse_history_a = run_fl(data, A_a, alpha=best_alpha_a, T=T_ROUNDS)
 
-    print(f"    Final training — System B (alpha={best_alpha_b}) …")
+    print(f"    Final training — System B "
+          f"(alpha={best_alpha_b}, sigma={best_sigma_b} km) …")
     weights_b, mse_history_b = run_fl(data, A_b, alpha=best_alpha_b, T=T_ROUNDS)
 
-    print(f"    Fitting Baseline …")
+    print(f"    Fitting Baseline (alpha={best_alpha_base}) …")
     weights_base = run_baseline(data)
 
-    # Evaluate all three systems on all splits.
+    # Evaluate all splits.
     metrics = {}
     for sys_name, weights in [("Baseline", weights_base),
                                ("System A", weights_a),
@@ -332,13 +425,13 @@ def run_one_experiment(cfg: dict, D: np.ndarray, A_a: np.ndarray) -> dict:
             _, mean_mse, mean_rmse = evaluate(data, weights, split=split)
             metrics[sys_name][split] = (mean_mse, mean_rmse)
 
-    # Per-station test results (for bar charts).
     per_station_base, _, _ = evaluate(data, weights_base, split="test")
     per_station_a,    _, _ = evaluate(data, weights_a,    split="test")
     per_station_b,    _, _ = evaluate(data, weights_b,    split="test")
 
     return {
         "data"             : data,
+        "A_a"              : A_a,
         "A_b"              : A_b,
         "weights_base"     : weights_base,
         "weights_a"        : weights_a,
@@ -351,6 +444,11 @@ def run_one_experiment(cfg: dict, D: np.ndarray, A_a: np.ndarray) -> dict:
         "per_station_b"    : per_station_b,
         "best_alpha_a"     : best_alpha_a,
         "best_alpha_b"     : best_alpha_b,
+        "best_alpha_base"  : best_alpha_base,
+        "best_sigma_a"     : best_sigma_a,
+        "best_sigma_b"     : best_sigma_b,
+        "grid_results_a"   : grid_a,
+        "grid_results_b"   : grid_b,
     }
 
 
@@ -363,14 +461,9 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
     Save a per-station results CSV for one experiment.
 
     Columns: station, system, train_mse, train_rmse, val_mse, val_rmse,
-             test_mse, test_rmse, best_alpha.
-
-    Parameters
-    ----------
-    cfg    : experiment config dict
-    result : output of run_one_experiment()
+             test_mse, test_rmse, best_alpha, best_sigma.
     """
-    rows = []
+    rows     = []
     stations = list(result["data"].keys())
 
     for sys_name, weights, per_station in [
@@ -378,13 +471,15 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
         ("System A", result["weights_a"],    result["per_station_a"]),
         ("System B", result["weights_b"],    result["per_station_b"]),
     ]:
-        alpha = (result["best_alpha_a"] if sys_name == "System A"
+        alpha = (result["best_alpha_a"]    if sys_name == "System A"
                  else result["best_alpha_b"] if sys_name == "System B"
-                 else None)
+                 else result["best_alpha_base"])
+        sigma = (result["best_sigma_a"]    if sys_name == "System A"
+                 else result["best_sigma_b"] if sys_name == "System B"
+                 else "-")
 
         for station in stations:
-            # Per-station train and val metrics.
-            tr_res, _, _  = evaluate(result["data"], weights, split="train")
+            tr_res,  _, _ = evaluate(result["data"], weights, split="train")
             val_res, _, _ = evaluate(result["data"], weights, split="val")
 
             rows.append({
@@ -396,10 +491,11 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
                 "val_rmse"   : round(val_res[station]["rmse"], 4),
                 "test_mse"   : round(per_station[station]["mse"],  4),
                 "test_rmse"  : round(per_station[station]["rmse"], 4),
-                "best_alpha" : alpha if alpha is not None else "-",
+                "best_alpha" : alpha,
+                "best_sigma" : sigma,
             })
 
-    df = pd.DataFrame(rows)
+    df   = pd.DataFrame(rows)
     path = os.path.join(RESULTS_DIR, cfg["filename"])
     df.to_csv(path, index=False)
     print(f"  Saved → {path}")
@@ -409,25 +505,9 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
 # Figures
 # ---------------------------------------------------------------------------
 
-def plot_test_rmse_by_station(results_base: dict,
-                               results_a: dict,
-                               results_b: dict,
-                               title: str,
-                               save_path: str) -> None:
-    """
-    Grouped bar chart: test RMSE per station, three bars per station
-    (Baseline / System A / System B).
-
-    Parameters
-    ----------
-    results_base : per-station test evaluate() dict for Baseline
-    results_a    : per-station test evaluate() dict for System A
-    results_b    : per-station test evaluate() dict for System B
-    title        : plot title string
-    save_path    : output PNG path
-    """
+def plot_test_rmse_by_station(results_base, results_a, results_b,
+                               title, save_path) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
-
     stations  = list(results_base.keys())
     short     = [s.split()[0] for s in stations]
     rmse_base = [results_base[s]["rmse"] for s in stations]
@@ -459,29 +539,18 @@ def plot_test_rmse_by_station(results_base: dict,
     print(f"  Saved → {save_path}")
 
 
-def plot_test_rmse_by_experiment(all_results: list, save_path: str) -> None:
-    """
-    Line plot: mean test RMSE vs experiment (Full / Reduced / Minimal),
-    one line per system.  Shows how FL benefit changes with training size.
-
-    Parameters
-    ----------
-    all_results : list of (cfg, result) pairs in experiment order
-    save_path   : output PNG path
-    """
+def plot_test_rmse_by_experiment(all_results, save_path) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
-
     exp_labels = [cfg["label"] for cfg, _ in all_results]
     rmse_base  = [r["metrics"]["Baseline"]["test"][1] for _, r in all_results]
     rmse_a     = [r["metrics"]["System A"]["test"][1] for _, r in all_results]
     rmse_b     = [r["metrics"]["System B"]["test"][1] for _, r in all_results]
 
     x = np.arange(len(exp_labels))
-
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(x, rmse_base, "o-", label="Baseline (local)",
+    ax.plot(x, rmse_base, "o-",  label="Baseline (local)",
             color="#d62728", linewidth=2, markersize=8)
-    ax.plot(x, rmse_a,    "s-", label="System A (distance)",
+    ax.plot(x, rmse_a,    "s-",  label="System A (distance)",
             color="#1f77b4", linewidth=2, markersize=8)
     ax.plot(x, rmse_b,    "^--", label="System B (correlation)",
             color="#2ca02c", linewidth=2, markersize=8)
@@ -501,33 +570,89 @@ def plot_test_rmse_by_experiment(all_results: list, save_path: str) -> None:
     print(f"  Saved → {save_path}")
 
 
-def plot_convergence(mse_history_a: list,
-                     mse_history_b: list,
-                     title: str,
-                     save_path: str) -> None:
-    """
-    Line plot of mean training MSE vs FL round for System A and System B.
-
-    Parameters
-    ----------
-    mse_history_a : per-round mean train MSE list for System A
-    mse_history_b : per-round mean train MSE list for System B
-    title         : plot title string
-    save_path     : output PNG path
-    """
+def plot_convergence(mse_history_a, mse_history_b, title, save_path) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     rounds = np.arange(1, len(mse_history_a) + 1)
-
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(rounds, mse_history_a, label="System A (distance)",
             color="#1f77b4", linewidth=2)
     ax.plot(rounds, mse_history_b, label="System B (correlation)",
             color="#2ca02c", linewidth=2, linestyle="--")
-
     ax.set_xlabel("FL Round", fontsize=11)
     ax.set_ylabel("Mean Training MSE (°C²)", fontsize=11)
     ax.set_title(title, fontsize=12, fontweight="bold")
     ax.legend(fontsize=10)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"  Saved → {save_path}")
+
+
+def plot_sigma_heatmap(grid_results: list, save_path: str) -> None:
+    """
+    Heatmap of mean validation RMSE over the (alpha, sigma) grid.
+
+    alpha on the y-axis (log scale labels), sigma on the x-axis.
+    Used for Experiment 3 System A to visualise joint sensitivity.
+
+    Parameters
+    ----------
+    grid_results : list of (alpha, sigma, val_mse) from hyperparameter_search_joint
+    save_path    : output PNG path
+    """
+    # Build 2-D grid: rows = alpha, cols = sigma.
+    alphas = sorted(set(a for a, _, _ in grid_results))
+    sigmas = sorted(set(s for _, s, _ in grid_results))
+
+    grid = np.full((len(alphas), len(sigmas)), np.nan)
+    for alpha, sigma, val_mse in grid_results:
+        i = alphas.index(alpha)
+        j = sigmas.index(sigma)
+        grid[i, j] = np.sqrt(val_mse)   # convert MSE → RMSE
+
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, ax = plt.subplots(figsize=(9, 6))
+
+    im = ax.imshow(grid, aspect="auto", cmap="YlOrRd",
+                   origin="lower",
+                   vmin=np.nanmin(grid), vmax=np.nanmax(grid))
+
+    # Annotate cells with RMSE value.
+    for i in range(len(alphas)):
+        for j in range(len(sigmas)):
+            ax.text(j, i, f"{grid[i, j]:.3f}",
+                    ha="center", va="center", fontsize=7,
+                    color="black" if grid[i, j] < np.nanmedian(grid) else "white")
+
+    # Mark the best cell.
+    best_idx = np.unravel_index(np.nanargmin(grid), grid.shape)
+    ax.add_patch(plt.Rectangle(
+        (best_idx[1] - 0.5, best_idx[0] - 0.5), 1, 1,
+        fill=False, edgecolor="blue", linewidth=2.5, label="Best"
+    ))
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("Val RMSE (°C)", fontsize=10)
+
+    # Axis labels - alpha shown with scientific notation for readability.
+    alpha_labels = [f"{a:.4g}" for a in alphas]
+    sigma_labels = [f"{int(s)}" for s in sigmas]
+
+    ax.set_xticks(range(len(sigmas)))
+    ax.set_xticklabels(sigma_labels, fontsize=9)
+    ax.set_yticks(range(len(alphas)))
+    ax.set_yticklabels(alpha_labels, fontsize=8)
+
+    ax.set_xlabel("sigma (km)", fontsize=11)
+    ax.set_ylabel("alpha", fontsize=11)
+    ax.set_title(
+        "Validation RMSE Heatmap — Experiment 3, System A\n"
+        f"Joint (alpha, sigma) search  |  d_max = {DMAX_KM:.0f} km",
+        fontsize=12, fontweight="bold",
+    )
+    ax.legend(handles=[plt.Rectangle((0, 0), 1, 1, fill=False,
+                                      edgecolor="blue", linewidth=2)],
+              labels=["Best (alpha, sigma)"], loc="upper right", fontsize=9)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -543,21 +668,14 @@ def print_combined_summary(all_results: list) -> pd.DataFrame:
     """
     Print the combined summary table and return it as a DataFrame.
 
-    Columns: Experiment, System, Train RMSE, Val RMSE, Test RMSE, Best Alpha.
-
-    Parameters
-    ----------
-    all_results : list of (cfg, result) pairs
-
-    Returns
-    -------
-    pd.DataFrame - the combined summary (also printed to console)
+    Columns: Experiment, System, Train RMSE, Val RMSE, Test RMSE,
+             Best Alpha, Best Sigma.
     """
     header = (f"\n  {'Experiment':<16s} {'System':<12s} "
               f"{'Train RMSE':>11s} {'Val RMSE':>10s} "
-              f"{'Test RMSE':>10s} {'Best Alpha':>11s}")
+              f"{'Test RMSE':>10s} {'Best Alpha':>11s} {'Best Sigma':>11s}")
     print(header)
-    print("  " + "-" * 73)
+    print("  " + "-" * 85)
 
     rows = []
     for cfg, result in all_results:
@@ -565,14 +683,23 @@ def print_combined_summary(all_results: list) -> pd.DataFrame:
             tr_rmse  = result["metrics"][sys_name]["train"][1]
             val_rmse = result["metrics"][sys_name]["val"][1]
             te_rmse  = result["metrics"][sys_name]["test"][1]
-            alpha    = (result["best_alpha_a"] if sys_name == "System A"
-                        else result["best_alpha_b"] if sys_name == "System B"
-                        else None)
-            alpha_str = f"{alpha}" if alpha is not None else "-"
+
+            if sys_name == "System A":
+                alpha = result["best_alpha_a"]
+                sigma = result["best_sigma_a"]
+            elif sys_name == "System B":
+                alpha = result["best_alpha_b"]
+                sigma = result["best_sigma_b"]
+            else:
+                alpha = result["best_alpha_base"]
+                sigma = None
+
+            alpha_str = f"{alpha}"
+            sigma_str = f"{sigma} km" if sigma is not None else "-"
 
             print(f"  {cfg['label']:<16s} {sys_name:<12s} "
                   f"{tr_rmse:>11.4f} {val_rmse:>10.4f} "
-                  f"{te_rmse:>10.4f} {alpha_str:>11s}")
+                  f"{te_rmse:>10.4f} {alpha_str:>11s} {sigma_str:>11s}")
 
             rows.append({
                 "experiment" : cfg["label"],
@@ -580,7 +707,8 @@ def print_combined_summary(all_results: list) -> pd.DataFrame:
                 "train_rmse" : round(tr_rmse,  4),
                 "val_rmse"   : round(val_rmse, 4),
                 "test_rmse"  : round(te_rmse,  4),
-                "best_alpha" : alpha if alpha is not None else "-",
+                "best_alpha" : alpha,
+                "best_sigma" : sigma if sigma is not None else "-",
             })
 
     return pd.DataFrame(rows)
@@ -596,21 +724,17 @@ def main():
     print("=" * 65)
     print("  FL Project — Phase 6: Running experiments")
     print(f"  Experiments      : {len(EXPERIMENTS)}")
+    print(f"  d_max (fixed)    : {DMAX_KM} km")
     print(f"  Alpha candidates : {ALPHA_CANDIDATES}")
+    print(f"  Sigma candidates : {SIGMA_CANDIDATES} km")
+    print(f"  Grid size        : {len(ALPHA_CANDIDATES)} × {len(SIGMA_CANDIDATES)} "
+          f"= {len(ALPHA_CANDIDATES)*len(SIGMA_CANDIDATES)} combinations")
     print(f"  FL rounds        : {T_ROUNDS}")
     print("=" * 65)
 
-    # Precompute the distance matrix once (shared across all experiments).
-    print("\n  Precomputing pairwise Haversine distances …")
-    D   = build_distance_matrix()
-    A_a = build_adj_system_a(D)
-    n_edges_a = int(np.sum(np.triu(A_a, k=1) > 0))
-    print(f"  System A edges: {n_edges_a}")
+    D = build_distance_matrix()
 
-    # -----------------------------------------------------------------------
-    # Run all three experiments
-    # -----------------------------------------------------------------------
-    all_results = []   # list of (cfg, result) for summary/plotting
+    all_results = []
 
     for cfg in EXPERIMENTS:
         print("\n" + "=" * 65)
@@ -620,7 +744,7 @@ def main():
         print(f"  Test  : {cfg['test_start']}  → {cfg['test_end']}")
         print("=" * 65)
 
-        result = run_one_experiment(cfg, D, A_a)
+        result = run_one_experiment(cfg, D)
         all_results.append((cfg, result))
 
         # Print per-experiment results table.
@@ -638,10 +762,9 @@ def main():
                   f"{val[0]:>10.4f} {val[1]:>10.4f} "
                   f"{te[0]:>10.4f} {te[1]:>10.4f}")
 
-        # Save per-experiment CSV.
         save_experiment_csv(cfg, result)
 
-        # HDD analysis - Experiment 1 only (full data, best alpha).
+        # HDD analysis - Experiment 1 only.
         if cfg["id"] == 1:
             print("\n" + "=" * 65)
             print("  HDD Analysis — Experiment 1 (Test Set)")
@@ -652,8 +775,19 @@ def main():
                 weights_a    = result["weights_a"],
                 weights_b    = result["weights_b"],
             )
+            # Update .npy files with best-sigma adjacency matrices.
+            np.save(os.path.join(DATA_DIR, "adj_system_a.npy"), result["A_a"])
+            np.save(os.path.join(DATA_DIR, "adj_system_b.npy"), result["A_b"])
+            print(f"  Updated adj_system_a.npy  (sigma={result['best_sigma_a']} km)")
+            print(f"  Updated adj_system_b.npy  (sigma={result['best_sigma_b']} km)")
 
-        # Per-experiment bar chart.
+        # Sigma heatmap - Experiment 3, System A only.
+        if cfg["id"] == 3:
+            plot_sigma_heatmap(
+                result["grid_results_a"],
+                save_path=os.path.join(RESULTS_DIR, "sigma_heatmap_exp3.png"),
+            )
+
         exp_id = cfg["id"]
         plot_test_rmse_by_station(
             result["per_station_base"],
@@ -665,9 +799,7 @@ def main():
                                    f"test_rmse_by_station_exp{exp_id}.png"),
         )
 
-    # -----------------------------------------------------------------------
-    # Convergence plot for Experiment 1 only (as specified)
-    # -----------------------------------------------------------------------
+    # Convergence plot — Experiment 1 only.
     _, result_exp1 = all_results[0]
     cfg_exp1       = all_results[0][0]
     plot_convergence(
@@ -678,17 +810,11 @@ def main():
         save_path=os.path.join(RESULTS_DIR, "convergence_exp1.png"),
     )
 
-    # -----------------------------------------------------------------------
-    # Cross-experiment line plot
-    # -----------------------------------------------------------------------
     plot_test_rmse_by_experiment(
         all_results,
         save_path=os.path.join(RESULTS_DIR, "test_rmse_by_experiment.png"),
     )
 
-    # -----------------------------------------------------------------------
-    # Combined summary table
-    # -----------------------------------------------------------------------
     print("\n" + "=" * 65)
     print("  Combined Summary — All Experiments")
     print("=" * 65)
