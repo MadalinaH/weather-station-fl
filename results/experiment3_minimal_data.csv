@@ -1,28 +1,28 @@
 station,system,train_mse,train_rmse,val_mse,val_rmse,test_mse,test_rmse,best_alpha
-Helsinki Kaisaniemi,Baseline,28.8042,5.367,28.4588,5.3347,28.4015,5.3293,-
-Turku Artukainen,Baseline,29.6187,5.4423,31.1459,5.5809,34.6217,5.884,-
-Oulu Vihreäsaari,Baseline,12.0343,3.469,7.3862,2.7178,7.1356,2.6713,-
-Tampere Härmälä,Baseline,20.9818,4.5806,20.6786,4.5474,24.2502,4.9245,-
-Jyväskylä Airport,Baseline,14.7152,3.836,11.6904,3.4191,15.9595,3.9949,-
-Kuopio Maaninka,Baseline,13.6324,3.6922,10.1164,3.1806,13.7009,3.7015,-
-Rovaniemi Apukka,Baseline,17.9839,4.2407,4.7145,2.1713,13.5223,3.6773,-
-Sodankylä,Baseline,16.2528,4.0315,5.8741,2.4237,13.3624,3.6555,-
-Inari Saariselkä,Baseline,15.9376,3.9922,8.2465,2.8717,12.5697,3.5454,-
-Helsinki Kaisaniemi,System A,29.3357,5.4162,23.0918,4.8054,31.4826,5.6109,500.0
-Turku Artukainen,System A,29.7754,5.4567,27.5992,5.2535,33.3234,5.7726,500.0
-Oulu Vihreäsaari,System A,12.463,3.5303,4.73,2.1749,7.4403,2.7277,500.0
-Tampere Härmälä,System A,21.1807,4.6022,20.5421,4.5323,22.0332,4.694,500.0
-Jyväskylä Airport,System A,15.0026,3.8733,12.1288,3.4826,13.0318,3.61,500.0
-Kuopio Maaninka,System A,13.9311,3.7324,11.7834,3.4327,10.9886,3.3149,500.0
-Rovaniemi Apukka,System A,19.111,4.3716,4.592,2.1429,13.0668,3.6148,500.0
-Sodankylä,System A,16.6814,4.0843,5.0458,2.2463,13.4422,3.6664,500.0
-Inari Saariselkä,System A,16.0498,4.0062,9.5826,3.0956,12.9761,3.6022,500.0
-Helsinki Kaisaniemi,System B,29.3303,5.4157,23.1661,4.8131,31.5055,5.613,500.0
-Turku Artukainen,System B,29.7707,5.4563,27.6746,5.2607,33.376,5.7772,500.0
-Oulu Vihreäsaari,System B,12.4602,3.5299,4.7524,2.18,7.4473,2.729,500.0
-Tampere Härmälä,System B,21.1755,4.6017,20.5727,4.5357,22.0761,4.6985,500.0
-Jyväskylä Airport,System B,14.9949,3.8723,12.1328,3.4832,13.0711,3.6154,500.0
-Kuopio Maaninka,System B,13.9245,3.7316,11.7882,3.4334,11.0229,3.3201,500.0
-Rovaniemi Apukka,System B,19.1019,4.3706,4.5832,2.1408,13.063,3.6143,500.0
-Sodankylä,System B,16.6731,4.0833,5.046,2.2463,13.4324,3.665,500.0
-Inari Saariselkä,System B,16.0479,4.006,9.5855,3.096,12.9523,3.5989,500.0
+Helsinki Kaisaniemi,Baseline,28.9868,5.3839,15.6737,3.959,16.8892,4.1096,-
+Turku Artukainen,Baseline,29.7533,5.4547,11.6447,3.4124,15.1999,3.8987,-
+Oulu Vihreäsaari,Baseline,10.2125,3.1957,3.2388,1.7997,4.8814,2.2094,-
+Tampere Härmälä,Baseline,20.7114,4.551,5.8209,2.4127,9.198,3.0328,-
+Jyväskylä Airport,Baseline,13.8614,3.7231,3.6253,1.904,6.6104,2.5711,-
+Kuopio Maaninka,Baseline,12.9534,3.5991,3.684,1.9194,6.8242,2.6123,-
+Rovaniemi Apukka,Baseline,15.7185,3.9647,6.0376,2.4572,11.9843,3.4618,-
+Sodankylä,Baseline,13.8597,3.7229,6.7419,2.5965,12.1194,3.4813,-
+Inari Saariselkä,Baseline,13.6822,3.6989,10.9507,3.3092,13.4602,3.6688,-
+Helsinki Kaisaniemi,System A,29.2171,5.4053,13.6767,3.6982,15.1063,3.8867,50.0
+Turku Artukainen,System A,29.8351,5.4621,10.9528,3.3095,14.7999,3.8471,50.0
+Oulu Vihreäsaari,System A,10.7733,3.2823,2.7637,1.6624,5.1154,2.2617,50.0
+Tampere Härmälä,System A,20.7218,4.5521,6.2211,2.4942,9.4963,3.0816,50.0
+Jyväskylä Airport,System A,13.8843,3.7262,3.687,1.9202,6.6237,2.5737,50.0
+Kuopio Maaninka,System A,12.9843,3.6034,3.7855,1.9456,6.4472,2.5391,50.0
+Rovaniemi Apukka,System A,16.4703,4.0584,5.3169,2.3058,12.1003,3.4786,50.0
+Sodankylä,System A,14.0077,3.7427,6.6459,2.578,12.4344,3.5262,50.0
+Inari Saariselkä,System A,13.7401,3.7068,11.9816,3.4615,13.7424,3.7071,50.0
+Helsinki Kaisaniemi,System B,29.2173,5.4053,13.6857,3.6994,15.1075,3.8868,50.0
+Turku Artukainen,System B,29.8349,5.4621,10.9516,3.3093,14.7928,3.8461,50.0
+Oulu Vihreäsaari,System B,10.7679,3.2814,2.7686,1.6639,5.1121,2.261,50.0
+Tampere Härmälä,System B,20.7217,4.5521,6.2168,2.4933,9.4915,3.0808,50.0
+Jyväskylä Airport,System B,13.8836,3.7261,3.6851,1.9197,6.6234,2.5736,50.0
+Kuopio Maaninka,System B,12.9835,3.6033,3.784,1.9452,6.4493,2.5395,50.0
+Rovaniemi Apukka,System B,16.4609,4.0572,5.3174,2.306,12.0926,3.4774,50.0
+Sodankylä,System B,14.0044,3.7422,6.6449,2.5778,12.4267,3.5252,50.0
+Inari Saariselkä,System B,13.7419,3.707,11.9808,3.4613,13.737,3.7063,50.0

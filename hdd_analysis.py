@@ -28,8 +28,8 @@ WHAT THIS SCRIPT DOES
 ----------------------
 Uses Experiment 1 (full data, 2022-2023 training) settings:
   - Baseline  : local Ridge per station (alpha=1e-6)
-  - System A  : GTVMin with distance graph  (alpha=50, T=50)
-  - System B  : GTVMin with correlation graph (alpha=50, T=50)
+  - System A  : GTVMin with distance graph  (alpha=0.0001, T=50)
+  - System B  : GTVMin with correlation graph (alpha=0.0001, T=50)
 
 For each station and system, on the TEST set:
   1. Computes predicted temperatures: y_pred = X_test @ w[i]
@@ -66,9 +66,9 @@ from build_network import (
 # Configuration - mirrors Experiment 1 best-alpha values from run_experiment.py
 # ---------------------------------------------------------------------------
 
-# Best alpha found by hyperparameter search in Experiment 1.
-ALPHA_SYSTEM_A = 50.0
-ALPHA_SYSTEM_B = 50.0
+# Best alpha found by hyperparameter search in Experiment 1 (8-feature model).
+ALPHA_SYSTEM_A = 0.0001
+ALPHA_SYSTEM_B = 0.0001
 T_ROUNDS       = 50
 
 DATA_DIR    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")

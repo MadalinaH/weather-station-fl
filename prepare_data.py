@@ -13,8 +13,16 @@ For each station:
   1. Load the daily CSV and drop any rows with NaN values.
 
   2. Build feature matrix X and label vector y:
-       X[t] = [t2m[t], tmin[t], tmax[t]]   today's temperatures  (3 features)
-       y[t] = t2m[t+1]                      tomorrow's mean temp  (label)
+       X[t] = [t2m[t], tmin[t], tmax[t],          today's temperatures
+               t2m_lag1[t], t2m_lag2[t],           lag features
+               delta_t[t],                          day-over-day change
+               sin_day[t], cos_day[t]]              cyclical day-of-year
+                                                    (8 features total)
+       y[t] = t2m[t+1]                             tomorrow's mean temp
+
+     Lag features require 2 preceding rows, so the first 2 rows are dropped
+     per station before splitting.
+
      Note: ws_10min is excluded because two stations (Tampere Härmälä and
      Inari Saariselkä) have no wind speed measurements - dropping it keeps
      the feature dimension identical across all 9 FL clients.
@@ -45,11 +53,11 @@ OUTPUT
   Structure:
     {
       station_name: {
-        "X_train": np.ndarray  shape (n_train, 3)
+        "X_train": np.ndarray  shape (n_train, 8)
         "y_train": np.ndarray  shape (n_train,)
-        "X_val"  : np.ndarray  shape (n_val,   3)
+        "X_val"  : np.ndarray  shape (n_val,   8)
         "y_val"  : np.ndarray  shape (n_val,)
-        "X_test" : np.ndarray  shape (n_test,  3)
+        "X_test" : np.ndarray  shape (n_test,  8)
         "y_test" : np.ndarray  shape (n_test,)
       },
       ...
@@ -63,15 +71,29 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
+from typing import Tuple
 
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Features used in the model.  ws_10min is intentionally excluded - see
-# module docstring for the reason.
-FEATURE_COLS = ["t2m", "tmin", "tmax"]
+# Base temperature columns loaded from CSV.  ws_10min is intentionally
+# excluded - see module docstring for the reason.
+BASE_COLS = ["t2m", "tmin", "tmax"]
+
+# Final ordered feature names (8 features).
+# Lag and cyclical features are computed inside build_xy().
+FEATURE_COLS = [
+    "t2m",
+    "tmin",
+    "tmax",
+    "t2m_lag1",
+    "t2m_lag2",
+    "delta_t",
+    "sin_day",
+    "cos_day",
+]
 
 # Label: next-day mean temperature.
 LABEL_COL = "t2m"
@@ -108,7 +130,7 @@ def load_station(csv_path: str) -> pd.DataFrame:
     """
     Load a daily station CSV, drop NaN rows, and return a clean DataFrame.
 
-    Rows with any NaN in the feature or label columns are removed because
+    Rows with any NaN in the base temperature columns are removed because
     the FL algorithm cannot handle missing values.  After dropping, the
     date index is contiguous but may have gaps.
 
@@ -124,8 +146,9 @@ def load_station(csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path, parse_dates=["date"])
     df = df.sort_values("date").reset_index(drop=True)
 
-    # Keep only the columns we need.
-    cols_needed = ["date"] + FEATURE_COLS
+    # Keep only the base columns we need; lag/cyclical features are added
+    # later in build_xy() after NaN rows have already been removed.
+    cols_needed = ["date"] + BASE_COLS
     df = df[cols_needed].dropna()
 
     return df
@@ -135,30 +158,61 @@ def load_station(csv_path: str) -> pd.DataFrame:
 # Step 2 - Build feature matrix X and label vector y
 # ---------------------------------------------------------------------------
 
-def build_xy(df: pd.DataFrame):
+def build_xy(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, pd.Series]:
     """
-    Construct the feature matrix X and label vector y from a daily DataFrame.
+    Construct the 8-feature matrix X and label vector y from a daily DataFrame.
 
-    X[t] = [t2m[t], tmin[t], tmax[t]]   - today's temperature features
-    y[t] = t2m[t+1]                      - tomorrow's mean temperature
+    Features computed per day t:
+        t2m[t]      - today's daily mean temperature [°C]
+        tmin[t]     - today's daily minimum temperature [°C]
+        tmax[t]     - today's daily maximum temperature [°C]
+        t2m_lag1[t] - t2m one day prior  (t2m[t-1])
+        t2m_lag2[t] - t2m two days prior (t2m[t-2])
+        delta_t[t]  - day-over-day change: t2m[t] - t2m[t-1]
+        sin_day[t]  - sin(2π × day_of_year / 365)  [seasonal cycle]
+        cos_day[t]  - cos(2π × day_of_year / 365)  [seasonal cycle]
 
-    Because y[t] requires the next day's value, the last row of the
-    DataFrame has no valid label and is dropped.  The date column is
-    returned separately so we can apply the chronological split by date.
+    Label:
+        y[t] = t2m[t+1]  (tomorrow's mean temperature, raw °C)
+
+    Construction order:
+        1. Compute lag and cyclical features on the full series (no leakage
+           - these are derived from past values or calendar position only).
+        2. Drop first 2 rows: lag2 makes rows 0 and 1 NaN.
+        3. Drop last row: no label available for the final day.
 
     Parameters
     ----------
-    df : clean daily DataFrame from load_station()
+    df : clean daily DataFrame from load_station(), columns [date, t2m, tmin, tmax]
 
     Returns
     -------
-    X     : np.ndarray, shape (n-1, 3)
-    y     : np.ndarray, shape (n-1,)
-    dates : pd.Series of datetime, length n-1  (the feature-day dates)
+    X     : np.ndarray, shape (n-3, 8)
+    y     : np.ndarray, shape (n-3,)
+    dates : pd.Series of datetime, length n-3  (the feature-day dates)
     """
-    X = df[FEATURE_COLS].values[:-1]       # all rows except the last
-    y = df[LABEL_COL].values[1:]           # all rows except the first (= next day)
+    df = df.copy()
+
+    # Lag features
+    df["t2m_lag1"] = df["t2m"].shift(1)   # t2m[t-1]
+    df["t2m_lag2"] = df["t2m"].shift(2)   # t2m[t-2]
+
+    # Day-over-day change
+    df["delta_t"] = df["t2m"] - df["t2m"].shift(1)
+
+    # Cyclical day-of-year encoding
+    doy = df["date"].dt.dayofyear.astype(float)
+    df["sin_day"] = np.sin(2.0 * np.pi * doy / 365.0)
+    df["cos_day"] = np.cos(2.0 * np.pi * doy / 365.0)
+
+    # Drop the first 2 rows where lag2 (and lag1 / delta_t) are NaN.
+    df = df.iloc[2:].reset_index(drop=True)
+
+    # X[t] uses rows 0..n-2; y[t] = t2m of the *next* row → rows 1..n-1.
+    X = df[FEATURE_COLS].values[:-1]       # shape (n-3, 8)
+    y = df[LABEL_COL].values[1:]           # shape (n-3,)
     dates = df["date"].iloc[:-1].reset_index(drop=True)
+
     return X, y, dates
 
 
@@ -190,7 +244,7 @@ def split_by_date(X: np.ndarray,
 
     Parameters
     ----------
-    X           : feature matrix, shape (n, 3)
+    X           : feature matrix, shape (n, 8)
     y           : label vector,   shape (n,)
     dates       : Series of feature-day dates, length n
     train_start : override for TRAIN_START (optional, ISO date string)
@@ -252,8 +306,8 @@ def normalise(splits: dict) -> dict:
     -------
     The same dict with X_train, X_val, X_test replaced by normalised arrays.
     """
-    mean = splits["X_train"].mean(axis=0)   # shape (3,)
-    std  = splits["X_train"].std(axis=0)    # shape (3,)
+    mean = splits["X_train"].mean(axis=0)   # shape (8,)
+    std  = splits["X_train"].std(axis=0)    # shape (8,)
     std[std == 0] = 1.0                     # guard against constant features
 
     splits["X_train"] = (splits["X_train"] - mean) / std
@@ -274,7 +328,7 @@ def main():
     """
     print("=" * 65)
     print("  FL Project — Phase 3: Preparing data")
-    print(f"  Features    : {FEATURE_COLS}")
+    print(f"  Features    : {FEATURE_COLS}  ({len(FEATURE_COLS)} total)")
     print(f"  Label       : next-day {LABEL_COL}")
     print(f"  Train       : {TRAIN_START} → {TRAIN_END}")
     print(f"  Validation  : {VAL_START}   → {VAL_END}")
@@ -317,9 +371,9 @@ def main():
     print("\n  Sanity check (first station):")
     print(f"    X_train shape : {sample['X_train'].shape}")
     print(f"    X_train mean  : {sample['X_train'].mean(axis=0).round(4)}"
-          f"  (should be ~[0,0,0])")
+          f"  (should be ~[0,…,0])")
     print(f"    X_train std   : {sample['X_train'].std(axis=0).round(4)}"
-          f"  (should be ~[1,1,1])")
+          f"  (should be ~[1,…,1])")
     print(f"    y_train range : {sample['y_train'].min():.1f} °C"
           f" → {sample['y_train'].max():.1f} °C  (raw, not normalised)")
 

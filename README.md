@@ -181,7 +181,7 @@ The raw CSVs have hourly rows with FMI's column headers. The script:
 | Jyväskylä Airport | 1 day missing across all variables |
 | Sodankylä | 2 days missing across all variables |
 
-Because two stations lack wind speed entirely, **`ws_10min` is excluded from the feature set**. All 9 FL clients must have identical feature dimensions for GTVMin to work. See `prepare_data.py`.
+Because two stations lack wind speed entirely, **`ws_10min` is excluded from the feature set**. All 9 FL clients must have identical feature dimensions for GTVMin to work. The final feature set has 8 dimensions - see `prepare_data.py`.
 
 ---
 
@@ -190,14 +190,25 @@ Because two stations lack wind speed entirely, **`ws_10min` is excluded from the
 ### The prediction task
 
 For each station and each day `t`:
-- **Features** `X[t]` = `[t2m[t], tmin[t], tmax[t]]` - today's temperatures
+- **Features** `X[t]` = `[t2m[t], tmin[t], tmax[t], t2m_lag1[t], t2m_lag2[t], delta_t[t], sin_day[t], cos_day[t]]` - 8 features
 - **Label** `y[t]` = `t2m[t+1]` - tomorrow's mean temperature
 
-This is a one-step-ahead time series forecasting problem solved with linear regression.
+| Feature | Description |
+|---|---|
+| `t2m` | Today's daily mean temperature [°C] |
+| `tmin` | Today's daily minimum temperature [°C] |
+| `tmax` | Today's daily maximum temperature [°C] |
+| `t2m_lag1` | Mean temperature 1 day ago [°C] |
+| `t2m_lag2` | Mean temperature 2 days ago [°C] |
+| `delta_t` | Day-over-day change: `t2m[t] − t2m[t−1]` [°C] |
+| `sin_day` | `sin(2π × day_of_year / 365)` - seasonal cycle |
+| `cos_day` | `cos(2π × day_of_year / 365)` - seasonal cycle |
+
+The first 2 rows per station are dropped to remove NaNs introduced by `t2m_lag2`. This is a one-step-ahead time series forecasting problem solved with linear regression.
 
 ### The FL algorithm (GTVMin)
 
-Each station `i` maintains a weight vector `w[i]` of shape `(3,)`. Prediction is:
+Each station `i` maintains a weight vector `w[i]` of shape `(8,)`. Prediction is:
 
 ```
 ŷ[t] = X[t] @ w[i]
@@ -258,21 +269,21 @@ For each experiment, alpha is tuned independently on the validation set from:
 
 | Experiment | System | Train RMSE | Val RMSE | Test RMSE | Best α |
 |---|---|---|---|---|---|
-| Full data | Baseline | 5.24 °C | 5.58 °C | 5.29 °C | — |
-| Full data | System A | 5.24 °C | 5.58 °C | 5.30 °C | 50 |
-| Full data | System B | 5.24 °C | 5.58 °C | 5.30 °C | 50 |
-| Reduced data | Baseline | 5.39 °C | 5.34 °C | 5.47 °C | — |
-| Reduced data | System A | 5.39 °C | 5.34 °C | 5.47 °C | 0.0001 |
-| Reduced data | System B | 5.39 °C | 5.34 °C | 5.47 °C | 0.0001 |
-| Minimal data | Baseline | 4.29 °C | 3.58 °C | 4.15 °C | — |
-| Minimal data | System A | 4.34 °C | 3.46 °C | **4.07 °C** | 500 |
-| Minimal data | System B | 4.34 °C | 3.47 °C | **4.07 °C** | 500 |
+| Full data | Baseline | 5.16 °C | 5.56 °C | 5.30 °C | — |
+| Full data | System A | 5.16 °C | 5.56 °C | 5.30 °C | 0.0001 |
+| Full data | System B | 5.16 °C | 5.56 °C | 5.30 °C | 0.0001 |
+| Reduced data | Baseline | 5.32 °C | 5.51 °C | 5.14 °C | — |
+| Reduced data | System A | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 |
+| Reduced data | System B | 5.32 °C | 5.51 °C | 5.14 °C | 0.0001 |
+| Minimal data | Baseline | 4.14 °C | 2.64 °C | 3.23 °C | — |
+| Minimal data | System A | 4.17 °C | 2.60 °C | **3.21 °C** | 50 |
+| Minimal data | System B | 4.17 °C | 2.60 °C | **3.21 °C** | 50 |
 
 ### Interpretation
 
 **Experiment 1 & 2 (Full and Reduced data):** FL makes no meaningful difference. With 1–2 years of training data, each station already has enough observations to fit a good local model. The hyperparameter search selects near-zero alpha (Exp 2) or very large alpha (Exp 1 - neighbourhood pull dominates the trivially small per-station variation), both converging to nearly identical results.
 
-**Experiment 3 (Minimal data - 6 months):** FL provides a genuine improvement. System A reduces test RMSE from 4.15 °C (Baseline) to 4.07 °C (~2% improvement). With only 181 training days, borrowing signal from geographic neighbours compensates for the limited local dataset. This is the fundamental FL motivation: **collaboration helps most when local data is scarce**.
+**Experiment 3 (Minimal data - 6 months):** FL provides a genuine improvement. System A reduces test RMSE from 3.23 °C (Baseline) to 3.21 °C (~1% improvement). With only 181 training days, borrowing signal from geographic neighbours compensates for the limited local dataset. This is the fundamental FL motivation: **collaboration helps most when local data is scarce**.
 
 **System A vs System B:** Both systems produce nearly identical results across all experiments. All station pairs within 300 km have strongly positive Pearson correlation (Finnish temperatures all follow the same seasonal cycle), so the correlation multiplier in System B ≈ 1.0 and barely modifies the distance weights.
 

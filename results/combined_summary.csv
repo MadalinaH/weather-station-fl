@@ -1,10 +1,10 @@
 experiment,system,train_rmse,val_rmse,test_rmse,best_alpha
-Full data,Baseline,5.2394,5.5778,5.2912,-
-Full data,System A,5.2436,5.575,5.2974,50.0
-Full data,System B,5.2436,5.575,5.2973,50.0
-Reduced data,Baseline,5.3891,5.3428,5.4709,-
-Reduced data,System A,5.3891,5.3428,5.4709,0.0001
-Reduced data,System B,5.3891,5.3428,5.4709,0.0001
-Minimal data,Baseline,4.2946,3.583,4.1537,-
-Minimal data,System A,4.3415,3.4629,4.0682,500.0
-Minimal data,System B,4.3408,3.4655,4.0702,500.0
+Full data,Baseline,5.16,5.5561,5.3012,-
+Full data,System A,5.16,5.5561,5.3012,0.0001
+Full data,System B,5.16,5.5561,5.3012,0.0001
+Reduced data,Baseline,5.3231,5.5097,5.1436,-
+Reduced data,System A,5.3231,5.5097,5.1436,0.0001
+Reduced data,System B,5.3231,5.5097,5.1436,0.0001
+Minimal data,Baseline,4.1438,2.6411,3.2273,-
+Minimal data,System A,4.171,2.5973,3.2113,50.0
+Minimal data,System B,4.1708,2.5973,3.2108,50.0
