@@ -160,15 +160,21 @@ def plot_sensitivity(results: list, save_path: str) -> None:
     lons = [STATION_COORDS[s][1] for s in STATIONS]
 
     short_labels = {
-        "Helsinki Kaisaniemi" : "Helsinki",
-        "Turku Artukainen"    : "Turku",
-        "Oulu Vihreäsaari"   : "Oulu",
-        "Tampere Härmälä"    : "Tampere",
-        "Jyväskylä Airport"  : "Jyväskylä",
-        "Kuopio Maaninka"     : "Kuopio",
-        "Rovaniemi Apukka"    : "Rovaniemi",
-        "Sodankylä"           : "Sodankylä",
-        "Inari Saariselkä"   : "Inari",
+        "Helsinki Kaisaniemi"       : "Helsinki",
+        "Turku Artukainen"          : "Turku",
+        "Oulu Vihreäsaari"         : "Oulu",
+        "Tampere Härmälä"          : "Tampere",
+        "Jyväskylä Airport"        : "Jyväskylä",
+        "Kuopio Maaninka"           : "Kuopio",
+        "Rovaniemi Apukka"          : "Rovaniemi",
+        "Sodankylä"                 : "Sodankylä",
+        "Inari Saariselkä"         : "Inari",
+        "Hanko Tulliniemi"          : "Hanko",
+        "Kajaani Airport"           : "Kajaani",
+        "Kittilä Airport"           : "Kittilä",
+        "Muonio Oustajärvi"        : "Muonio",
+        "Pelkosenniemi Pyhätunturi" : "Pelkosenniemi",
+        "Raahe Nahkiainen"          : "Raahe",
     }
 
     for ax, (dmax, sigma, A, edges) in zip(axes, results):
@@ -225,7 +231,7 @@ def plot_sensitivity(results: list, save_path: str) -> None:
                ncol=4, fontsize=10, bbox_to_anchor=(0.5, 0.01))
 
     fig.suptitle(
-        "Graph Sensitivity Analysis — Effect of Distance Threshold d_max\n"
+        "Graph Sensitivity Analysis - Effect of Distance Threshold d_max\n"
         "Gaussian kernel: A[i,j] = exp(−d² / 2σ²), σ = d_max / 2",
         fontsize=13, fontweight="bold", y=0.995,
     )

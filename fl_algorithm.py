@@ -174,6 +174,116 @@ def run_fl(data: dict,
 
 
 # ---------------------------------------------------------------------------
+# Seasonal variant: GTVMin with winter / summer collaboration graphs
+# ---------------------------------------------------------------------------
+
+def run_fl_seasonal(data: dict,
+                    A_winter: np.ndarray,
+                    A_summer: np.ndarray,
+                    alpha: float,
+                    T: int = 50) -> tuple:
+    """
+    GTVMin federated learning with season-dependent collaboration graphs.
+
+    Instead of a single adjacency matrix, two matrices capture how stations
+    collaborate during winter (Oct-Mar) and summer (Apr-Sep) separately.
+    Pearson correlations differ between seasons in Finland: in winter Arctic
+    air masses dominate making northern stations highly correlated; in summer
+    local topography and coastal effects create more diverse patterns.
+
+    MATHEMATICAL DERIVATION
+    -----------------------
+    The standard GTVMin objective for station i (single graph):
+        L = ||y - X w_i||² + α * s_i * ||w_i - θ_i||²
+
+    With two seasonal graphs the objective becomes:
+        L = ||y - X w_i||² + α * (s_w * ||w_i - θ_w||² + s_s * ||w_i - θ_s||²)
+
+    where s_w / s_s are the winter / summer neighbourhood strengths and
+    θ_w / θ_s are the winter / summer neighbour centroids.
+
+    This is equivalent (up to a constant in w_i) to:
+        L = ||y - X w_i||² + α * s_total * ||w_i - θ_blend||²
+
+    with:
+        s_total  = s_w + s_s
+        θ_blend  = (s_w * θ_w + s_s * θ_s) / s_total
+
+    The closed-form Ridge update then follows exactly as in the standard
+    GTVMin algorithm, using θ_blend and s_total in place of θ_i and s_i.
+
+    ONE ROUND (for station i)
+    -------------------------
+    1. s_w      = A_winter[i].sum()
+       s_s      = A_summer[i].sum()
+       s_total  = s_w + s_s
+    2. θ_w      = (A_winter[i] @ W_prev) / s_w   (or zeros if s_w == 0)
+       θ_s      = (A_summer[i] @ W_prev) / s_s   (or zeros if s_s == 0)
+    3. θ_blend  = (s_w * θ_w + s_s * θ_s) / s_total
+    4. ỹ        = y_train - X_train @ θ_blend
+    5. Solve    Ridge(alpha = α * s_total).fit(X_train, ỹ) → u*
+    6. w[i]     = u* + θ_blend
+
+    Parameters
+    ----------
+    data     : prepared data dict from prepare_data.py
+    A_winter : weighted adjacency matrix for winter months, shape (N, N)
+    A_summer : weighted adjacency matrix for summer months, shape (N, N)
+    alpha    : Ridge regularisation base parameter
+    T        : number of federated rounds
+
+    Returns
+    -------
+    weights     : dict {station_name: np.ndarray of shape (n_features,)}
+    mse_history : list of float - mean training MSE per round, length T
+    """
+    stations   = list(data.keys())
+    n          = len(stations)
+    n_features = data[stations[0]]["X_train"].shape[1]
+
+    W = np.zeros((n, n_features))
+    mse_history = []
+
+    for round_idx in range(T):
+        W_prev = W.copy()
+
+        for i, station in enumerate(stations):
+            X_tr = data[station]["X_train"]
+            y_tr = data[station]["y_train"]
+
+            # Neighbourhood strengths for each season.
+            s_w = float(np.sum(A_winter[i]))
+            s_s = float(np.sum(A_summer[i]))
+            s_total = s_w + s_s
+
+            if s_total == 0:
+                # Isolated in both graphs - degenerate to local Ridge.
+                ridge = Ridge(alpha=alpha, fit_intercept=False)
+                ridge.fit(X_tr, y_tr)
+                W[i] = ridge.coef_
+                continue
+
+            # Seasonal neighbour centroids.
+            theta_w = (A_winter[i] @ W_prev) / s_w if s_w > 0 else np.zeros(n_features)
+            theta_s = (A_summer[i] @ W_prev) / s_s if s_s > 0 else np.zeros(n_features)
+
+            # Strength-weighted blend - the effective centroid.
+            theta_blend = (s_w * theta_w + s_s * theta_s) / s_total
+
+            # Standard GTVMin update with the blended centroid.
+            y_tilde = y_tr - X_tr @ theta_blend
+            ridge   = Ridge(alpha=alpha * s_total, fit_intercept=False)
+            ridge.fit(X_tr, y_tilde)
+            W[i] = ridge.coef_ + theta_blend
+
+        round_mse = _compute_mean_mse(W, data, stations, split="train")
+        mse_history.append(round_mse)
+
+    weights = {station: W[i] for i, station in enumerate(stations)}
+    return weights, mse_history
+
+
+# ---------------------------------------------------------------------------
 # Helper: mean MSE across all stations for a given split
 # ---------------------------------------------------------------------------
 
@@ -228,7 +338,7 @@ if __name__ == "__main__":
     A_b = np.load(os.path.join(DATA_DIR, "adj_system_b.npy"))
 
     for system_name, adj in [("System A", A_a), ("System B", A_b)]:
-        print(f"\nRunning GTVMin — {system_name}  (alpha=1.0, T=50) …")
+        print(f"\nRunning GTVMin - {system_name}  (alpha=1.0, T=50) …")
         weights, mse_history = run_fl(data, adj, alpha=1.0, T=50)
 
         print(f"  Initial MSE  (round  1): {mse_history[0]:.4f}")

@@ -9,10 +9,17 @@ how training set size affects FL benefit.
 SYSTEMS COMPARED
 ----------------
   Baseline  : local-only Ridge per station (alpha → 0, no graph).
-  System A  : GTVMin FL with distance-based adjacency matrix.
+  System A  : GTVMin FL with distance-based adjacency matrix (d_max cutoff).
   System B  : GTVMin FL with correlation-weighted adjacency matrix.
               Correlation weights are recomputed on each experiment's
               training data to avoid data leakage.
+  System C  : GTVMin FL with k-nearest-neighbours graph.
+              Each station connects to its k closest neighbours (no d_max).
+              Graph is symmetric via union; every station has ≥ k neighbours.
+  System D  : GTVMin FL with seasonal correlation graphs.
+              Separate winter (Oct-Mar) and summer (Apr-Sep) Pearson correlation
+              matrices drive collaboration. Each FL round uses a strength-weighted
+              blend of the two seasonal centroids (run_fl_seasonal).
 
 EXPERIMENTS
 -----------
@@ -25,21 +32,26 @@ HYPERPARAMETER SEARCH
   Baseline  : alpha-only grid search (12 candidates).
   System A  : joint (alpha, sigma) grid search - 12 × 7 = 84 combinations.
   System B  : joint (alpha, sigma) grid search - 84 combinations.
+  System C  : joint (alpha, sigma, k) grid search - 12 × 7 × 4 = 336 combinations.
+  System D  : joint (alpha, sigma) grid search - 12 × 7 = 84 combinations.
+              (winter and summer graphs share the same sigma)
 
-  dmax is fixed at 200 km (strictest viable threshold).
-  sigma controls Gaussian edge-weight decay within dmax.
+  dmax is fixed at 200 km (Systems A & B; strictest viable threshold).
+  sigma controls Gaussian edge-weight decay.
+  k controls neighbourhood size for System C (candidates: 2, 3, 4, 5).
 
   For System B, the Pearson correlation matrix is computed once per
   experiment on the training data, then combined with each sigma's
   Gaussian weights - avoiding redundant CSV reads.
 
   Criterion  : mean validation MSE (test set never seen during tuning)
-  Best (alpha, sigma) selected independently per system per experiment.
+  Best parameters selected independently per system per experiment.
 
 GRAPH PARAMETERS
 ----------------
-  dmax  = 200 km   (fixed - from graph sensitivity analysis)
+  dmax  = 200 km   (fixed - from graph sensitivity analysis; Systems A & B)
   sigma = tuned    (candidates: 50, 75, 100, 125, 150, 175, 200 km)
+  k     = tuned    (candidates: 2, 3, 4, 5; System C only)
 
 OUTPUT FILES
 ------------
@@ -53,6 +65,7 @@ OUTPUT FILES
   results/sigma_heatmap_exp3.png      val RMSE heatmap over (alpha, sigma)
   data/adj_system_a.npy               updated with best sigma from Experiment 1
   data/adj_system_b.npy               updated with best sigma from Experiment 1
+  data/adj_system_c.npy               updated with best (sigma, k) from Experiment 1
 
 Usage:
     python run_experiment.py
@@ -65,13 +78,17 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import Ridge
 
-from fl_algorithm import run_fl
+from fl_algorithm import run_fl, run_fl_seasonal
 from evaluate import evaluate
 import hdd_analysis
 
 from prepare_data import load_station, build_xy, split_by_date, normalise
 from build_network import (
     build_distance_matrix,
+    build_adj_system_c,
+    build_adj_seasonal,
+    WINTER_MONTHS,
+    SUMMER_MONTHS,
     STATIONS as STATION_NAMES,
     STATION_FILES,
     N as N_STATIONS,
@@ -89,6 +106,8 @@ ALPHA_CANDIDATES = [0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0,
                     10.0, 50.0, 100.0, 500.0]
 
 SIGMA_CANDIDATES = [50.0, 75.0, 100.0, 125.0, 150.0, 175.0, 200.0]
+
+K_CANDIDATES = [2, 3, 4, 5]    # nearest neighbours for System C
 
 T_ROUNDS    = 50
 RANDOM_SEED = 42
@@ -229,6 +248,133 @@ def build_system_b_sigma(corr_matrix: np.ndarray,
 
 
 # ---------------------------------------------------------------------------
+# Seasonal correlation matrices (System D)
+# ---------------------------------------------------------------------------
+
+def compute_seasonal_pearson_matrices(cfg: dict, D: np.ndarray) -> tuple:
+    """
+    Compute winter and summer Pearson correlation matrices for System D.
+
+    Filters training-period t2m to winter months (Oct-Mar) and summer months
+    (Apr-Sep) separately, then computes per-season Pearson correlations.
+    Both matrices are clamped to [0, 1] (negative correlations → 0).
+
+    Parameters
+    ----------
+    cfg : experiment config dict (contains train_start / train_end)
+    D   : pairwise distance matrix [km] (used only for station ordering)
+
+    Returns
+    -------
+    corr_winter : np.ndarray (N, N) - winter clamped Pearson correlations
+    corr_summer : np.ndarray (N, N) - summer clamped Pearson correlations
+    """
+    t2m_series = {}
+    for station, filename in STATION_FILES.items():
+        csv_path = os.path.join(DATA_DIR, filename)
+        df   = pd.read_csv(csv_path, parse_dates=["date"])
+        mask = (df["date"] >= cfg["train_start"]) & (df["date"] <= cfg["train_end"])
+        s    = df.loc[mask, ["date", "t2m"]].set_index("date")["t2m"].dropna()
+        t2m_series[station] = s
+
+    stations = list(STATION_FILES.keys())
+
+    def _season_corr(months):
+        C = np.zeros((N_STATIONS, N_STATIONS))
+        for i, s1 in enumerate(stations):
+            for j, s2 in enumerate(stations):
+                if i == j:
+                    continue
+                ser1 = t2m_series[s1]
+                ser2 = t2m_series[s2]
+                ser1_m = ser1[pd.to_datetime(ser1.index).month.isin(months)]
+                ser2_m = ser2[pd.to_datetime(ser2.index).month.isin(months)]
+                common = ser1_m.index.intersection(ser2_m.index)
+                if len(common) < 2:
+                    continue
+                t1   = ser1_m.loc[common].values
+                t2   = ser2_m.loc[common].values
+                corr = float(np.corrcoef(t1, t2)[0, 1])
+                C[i, j] = max(0.0, corr) if not np.isnan(corr) else 0.0
+        np.fill_diagonal(C, 0.0)
+        return C
+
+    corr_winter = _season_corr(WINTER_MONTHS)
+    corr_summer = _season_corr(SUMMER_MONTHS)
+    return corr_winter, corr_summer
+
+
+def build_system_d_sigma(corr_winter: np.ndarray,
+                          corr_summer: np.ndarray,
+                          D: np.ndarray,
+                          sigma: float) -> tuple:
+    """
+    Build System D winter and summer adjacency matrices for a given sigma.
+
+    Both share the same Gaussian distance kernel and d_max cutoff.
+
+    Returns
+    -------
+    (A_winter, A_summer) - tuple of shape (N, N) arrays
+    """
+    A_dist, _ = build_graph(D, DMAX_KM, sigma)
+    A_winter  = corr_winter * A_dist
+    A_summer  = corr_summer * A_dist
+    np.fill_diagonal(A_winter, 0.0)
+    np.fill_diagonal(A_summer, 0.0)
+    return A_winter, A_summer
+
+
+# ---------------------------------------------------------------------------
+# Hyperparameter search - joint (alpha, sigma) for System D
+# ---------------------------------------------------------------------------
+
+def hyperparameter_search_joint_d(data: dict,
+                                   D: np.ndarray,
+                                   corr_winter: np.ndarray,
+                                   corr_summer: np.ndarray,
+                                   system_name: str) -> tuple:
+    """
+    Joint (alpha, sigma) grid search for System D (seasonal graphs).
+
+    Both seasonal matrices share the same sigma - the search is 12 × 7 = 84
+    combinations, identical in structure to Systems A and B.
+
+    Returns
+    -------
+    best_alpha, best_sigma, grid_results (list of (alpha, sigma, val_mse))
+    """
+    n_combos = len(ALPHA_CANDIDATES) * len(SIGMA_CANDIDATES)
+    print(f"\n    Joint (alpha, sigma) search - {system_name}  [{n_combos} combinations]")
+    print(f"    {'Alpha':>10s}  {'Sigma':>8s}  {'Val MSE':>10s}  {'Val RMSE':>10s}")
+    print("    " + "-" * 47)
+
+    best_alpha   = None
+    best_sigma   = None
+    best_mse     = np.inf
+    grid_results = []
+
+    for sigma in SIGMA_CANDIDATES:
+        A_w, A_s = build_system_d_sigma(corr_winter, corr_summer, D, sigma)
+        for alpha in ALPHA_CANDIDATES:
+            weights, _ = run_fl_seasonal(data, A_w, A_s, alpha=alpha, T=T_ROUNDS)
+            _, mean_mse, mean_rmse = evaluate(data, weights, split="val")
+            grid_results.append((alpha, sigma, mean_mse))
+
+            marker = "  ←" if mean_mse < best_mse else ""
+            print(f"    {alpha:>10.4f}  {sigma:>8.1f}  "
+                  f"{mean_mse:>10.4f}  {mean_rmse:>10.4f}{marker}")
+
+            if mean_mse < best_mse:
+                best_mse   = mean_mse
+                best_alpha = alpha
+                best_sigma = sigma
+
+    print(f"    Best alpha = {best_alpha}  |  Best sigma = {best_sigma} km")
+    return best_alpha, best_sigma, grid_results
+
+
+# ---------------------------------------------------------------------------
 # Baseline
 # ---------------------------------------------------------------------------
 
@@ -258,7 +404,7 @@ def hyperparameter_search_alpha(data: dict,
 
     Returns best_alpha, list of (alpha, val_mse).
     """
-    print(f"\n    Hyperparameter search — {system_name}")
+    print(f"\n    Hyperparameter search - {system_name}")
     print(f"    {'Alpha':>10s}  {'Val MSE':>10s}  {'Val RMSE':>10s}")
     print("    " + "-" * 37)
 
@@ -310,7 +456,7 @@ def hyperparameter_search_joint(data: dict,
     grid_results : list of (alpha, sigma, val_mse) - all 84 evaluations
     """
     n_combos = len(ALPHA_CANDIDATES) * len(SIGMA_CANDIDATES)
-    print(f"\n    Joint (alpha, sigma) search — {system_name}  [{n_combos} combinations]")
+    print(f"\n    Joint (alpha, sigma) search - {system_name}  [{n_combos} combinations]")
     print(f"    {'Alpha':>10s}  {'Sigma':>8s}  {'Val MSE':>10s}  {'Val RMSE':>10s}")
     print("    " + "-" * 47)
 
@@ -345,6 +491,67 @@ def hyperparameter_search_joint(data: dict,
 
 
 # ---------------------------------------------------------------------------
+# Hyperparameter search - joint (alpha, sigma, k) for System C
+# ---------------------------------------------------------------------------
+
+def hyperparameter_search_joint_c(data: dict,
+                                   D: np.ndarray,
+                                   system_name: str) -> tuple:
+    """
+    Joint grid search over ALPHA_CANDIDATES × SIGMA_CANDIDATES × K_CANDIDATES
+    for System C (k-nearest-neighbours graph).
+
+    For each (k, sigma) combination a fresh k-NN adjacency matrix is built;
+    then all alpha values are evaluated against it.
+
+    Parameters
+    ----------
+    data        : prepared data dict
+    D           : pairwise distance matrix [km]
+    system_name : display label
+
+    Returns
+    -------
+    best_alpha   : float
+    best_sigma   : float
+    best_k       : int
+    grid_results : list of (alpha, sigma, k, val_mse) - all evaluations
+    """
+    n_combos = len(ALPHA_CANDIDATES) * len(SIGMA_CANDIDATES) * len(K_CANDIDATES)
+    print(f"\n    Joint (alpha, sigma, k) search - {system_name}  [{n_combos} combinations]")
+    print(f"    {'Alpha':>10s}  {'Sigma':>8s}  {'k':>3s}  {'Val MSE':>10s}  {'Val RMSE':>10s}")
+    print("    " + "-" * 53)
+
+    best_alpha   = None
+    best_sigma   = None
+    best_k       = None
+    best_mse     = np.inf
+    grid_results = []
+
+    for k in K_CANDIDATES:
+        for sigma in SIGMA_CANDIDATES:
+            A = build_adj_system_c(D, k, sigma)
+            for alpha in ALPHA_CANDIDATES:
+                weights, _ = run_fl(data, A, alpha=alpha, T=T_ROUNDS)
+                _, mean_mse, mean_rmse = evaluate(data, weights, split="val")
+                grid_results.append((alpha, sigma, k, mean_mse))
+
+                marker = "  ←" if mean_mse < best_mse else ""
+                print(f"    {alpha:>10.4f}  {sigma:>8.1f}  {k:>3d}  "
+                      f"{mean_mse:>10.4f}  {mean_rmse:>10.4f}{marker}")
+
+                if mean_mse < best_mse:
+                    best_mse   = mean_mse
+                    best_alpha = alpha
+                    best_sigma = sigma
+                    best_k     = k
+
+    print(f"    Best alpha = {best_alpha}  |  "
+          f"Best sigma = {best_sigma} km  |  Best k = {best_k}")
+    return best_alpha, best_sigma, best_k, grid_results
+
+
+# ---------------------------------------------------------------------------
 # Run one complete experiment
 # ---------------------------------------------------------------------------
 
@@ -366,8 +573,8 @@ def run_one_experiment(cfg: dict, D: np.ndarray) -> dict:
     Returns
     -------
     result dict with keys: data, weights_*, mse_history_*, metrics,
-    per_station_*, best_alpha_a/b, best_sigma_a/b, A_a, A_b,
-    grid_results_a/b.
+    per_station_*, best_alpha_a/b/c/d, best_sigma_a/b/c/d, best_k_c,
+    A_a, A_b, A_c, A_d_winter, A_d_summer, grid_results_a/b/c/d.
     """
     print(f"\n  Preparing data ({cfg['train_start']} → {cfg['train_end']}) …")
     data    = prepare_experiment_data(cfg)
@@ -392,6 +599,21 @@ def run_one_experiment(cfg: dict, D: np.ndarray) -> dict:
         data, D, corr_matrix=corr_matrix, system_name="System B"
     )
 
+    # Joint (alpha, sigma, k) search for System C.
+    best_alpha_c, best_sigma_c, best_k_c, grid_c = hyperparameter_search_joint_c(
+        data, D, system_name="System C"
+    )
+
+    # Seasonal Pearson matrices for System D (computed once per experiment).
+    print(f"  Computing seasonal Pearson matrices "
+          f"({cfg['train_start']} → {cfg['train_end']}) …")
+    corr_winter, corr_summer = compute_seasonal_pearson_matrices(cfg, D)
+
+    # Joint (alpha, sigma) search for System D.
+    best_alpha_d, best_sigma_d, grid_d = hyperparameter_search_joint_d(
+        data, D, corr_winter, corr_summer, system_name="System D"
+    )
+
     # Alpha-only search for Baseline (sigma irrelevant - no graph).
     # Use a zero adjacency matrix so run_fl degenerates to local Ridge.
     A_zero = np.zeros((N_STATIONS, N_STATIONS))
@@ -399,18 +621,29 @@ def run_one_experiment(cfg: dict, D: np.ndarray) -> dict:
         data, A_zero, system_name="Baseline"
     )
 
-    # Build final adjacency matrices with best sigma.
+    # Build final adjacency matrices with best parameters.
     A_a, _ = build_graph(D, DMAX_KM, best_sigma_a)
     A_b     = build_system_b_sigma(corr_matrix, D, best_sigma_b)
+    A_c     = build_adj_system_c(D, best_k_c, best_sigma_c)
+    A_d_winter, A_d_summer = build_system_d_sigma(corr_winter, corr_summer, D, best_sigma_d)
 
     # Final training.
-    print(f"\n    Final training — System A "
+    print(f"\n    Final training - System A "
           f"(alpha={best_alpha_a}, sigma={best_sigma_a} km) …")
     weights_a, mse_history_a = run_fl(data, A_a, alpha=best_alpha_a, T=T_ROUNDS)
 
-    print(f"    Final training — System B "
+    print(f"    Final training - System B "
           f"(alpha={best_alpha_b}, sigma={best_sigma_b} km) …")
     weights_b, mse_history_b = run_fl(data, A_b, alpha=best_alpha_b, T=T_ROUNDS)
+
+    print(f"    Final training - System C "
+          f"(alpha={best_alpha_c}, sigma={best_sigma_c} km, k={best_k_c}) …")
+    weights_c, mse_history_c = run_fl(data, A_c, alpha=best_alpha_c, T=T_ROUNDS)
+
+    print(f"    Final training - System D "
+          f"(alpha={best_alpha_d}, sigma={best_sigma_d} km, seasonal) …")
+    weights_d, mse_history_d = run_fl_seasonal(data, A_d_winter, A_d_summer,
+                                                alpha=best_alpha_d, T=T_ROUNDS)
 
     print(f"    Fitting Baseline (alpha={best_alpha_base}) …")
     weights_base = run_baseline(data)
@@ -419,7 +652,9 @@ def run_one_experiment(cfg: dict, D: np.ndarray) -> dict:
     metrics = {}
     for sys_name, weights in [("Baseline", weights_base),
                                ("System A", weights_a),
-                               ("System B", weights_b)]:
+                               ("System B", weights_b),
+                               ("System C", weights_c),
+                               ("System D", weights_d)]:
         metrics[sys_name] = {}
         for split in ("train", "val", "test"):
             _, mean_mse, mean_rmse = evaluate(data, weights, split=split)
@@ -428,27 +663,45 @@ def run_one_experiment(cfg: dict, D: np.ndarray) -> dict:
     per_station_base, _, _ = evaluate(data, weights_base, split="test")
     per_station_a,    _, _ = evaluate(data, weights_a,    split="test")
     per_station_b,    _, _ = evaluate(data, weights_b,    split="test")
+    per_station_c,    _, _ = evaluate(data, weights_c,    split="test")
+    per_station_d,    _, _ = evaluate(data, weights_d,    split="test")
 
     return {
         "data"             : data,
         "A_a"              : A_a,
         "A_b"              : A_b,
+        "A_c"              : A_c,
+        "A_d_winter"       : A_d_winter,
+        "A_d_summer"       : A_d_summer,
         "weights_base"     : weights_base,
         "weights_a"        : weights_a,
         "weights_b"        : weights_b,
+        "weights_c"        : weights_c,
+        "weights_d"        : weights_d,
         "mse_history_a"    : mse_history_a,
         "mse_history_b"    : mse_history_b,
+        "mse_history_c"    : mse_history_c,
+        "mse_history_d"    : mse_history_d,
         "metrics"          : metrics,
         "per_station_base" : per_station_base,
         "per_station_a"    : per_station_a,
         "per_station_b"    : per_station_b,
+        "per_station_c"    : per_station_c,
+        "per_station_d"    : per_station_d,
         "best_alpha_a"     : best_alpha_a,
         "best_alpha_b"     : best_alpha_b,
+        "best_alpha_c"     : best_alpha_c,
+        "best_alpha_d"     : best_alpha_d,
         "best_alpha_base"  : best_alpha_base,
         "best_sigma_a"     : best_sigma_a,
         "best_sigma_b"     : best_sigma_b,
+        "best_sigma_c"     : best_sigma_c,
+        "best_sigma_d"     : best_sigma_d,
+        "best_k_c"         : best_k_c,
         "grid_results_a"   : grid_a,
         "grid_results_b"   : grid_b,
+        "grid_results_c"   : grid_c,
+        "grid_results_d"   : grid_d,
     }
 
 
@@ -470,13 +723,20 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
         ("Baseline", result["weights_base"], result["per_station_base"]),
         ("System A", result["weights_a"],    result["per_station_a"]),
         ("System B", result["weights_b"],    result["per_station_b"]),
+        ("System C", result["weights_c"],    result["per_station_c"]),
+        ("System D", result["weights_d"],    result["per_station_d"]),
     ]:
         alpha = (result["best_alpha_a"]    if sys_name == "System A"
                  else result["best_alpha_b"] if sys_name == "System B"
+                 else result["best_alpha_c"] if sys_name == "System C"
+                 else result["best_alpha_d"] if sys_name == "System D"
                  else result["best_alpha_base"])
         sigma = (result["best_sigma_a"]    if sys_name == "System A"
                  else result["best_sigma_b"] if sys_name == "System B"
+                 else result["best_sigma_c"] if sys_name == "System C"
+                 else result["best_sigma_d"] if sys_name == "System D"
                  else "-")
+        k_val = result["best_k_c"] if sys_name == "System C" else "-"
 
         for station in stations:
             tr_res,  _, _ = evaluate(result["data"], weights, split="train")
@@ -493,6 +753,7 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
                 "test_rmse"  : round(per_station[station]["rmse"], 4),
                 "best_alpha" : alpha,
                 "best_sigma" : sigma,
+                "best_k"     : k_val,
             })
 
     df   = pd.DataFrame(rows)
@@ -505,33 +766,40 @@ def save_experiment_csv(cfg: dict, result: dict) -> None:
 # Figures
 # ---------------------------------------------------------------------------
 
-def plot_test_rmse_by_station(results_base, results_a, results_b,
-                               title, save_path) -> None:
+def plot_test_rmse_by_station(results_base, results_a, results_b, results_c,
+                               results_d, title, save_path) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     stations  = list(results_base.keys())
     short     = [s.split()[0] for s in stations]
     rmse_base = [results_base[s]["rmse"] for s in stations]
     rmse_a    = [results_a[s]["rmse"]    for s in stations]
     rmse_b    = [results_b[s]["rmse"]    for s in stations]
+    rmse_c    = [results_c[s]["rmse"]    for s in stations]
+    rmse_d    = [results_d[s]["rmse"]    for s in stations]
 
     x     = np.arange(len(stations))
-    width = 0.25
+    width = 0.15
 
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(x - width, rmse_base, width, label="Baseline (local)",
+    fig, ax = plt.subplots(figsize=(15, 5))
+    ax.bar(x - 2*width, rmse_base, width, label="Baseline (local)",
            color="#d62728", alpha=0.85)
-    ax.bar(x,          rmse_a,   width, label="System A (distance)",
+    ax.bar(x - 1*width, rmse_a,   width, label="System A (distance, d_max)",
            color="#1f77b4", alpha=0.85)
-    ax.bar(x + width,  rmse_b,   width, label="System B (correlation)",
+    ax.bar(x,           rmse_b,   width, label="System B (correlation)",
            color="#2ca02c", alpha=0.85)
+    ax.bar(x + 1*width, rmse_c,   width, label="System C (k-NN)",
+           color="#ff7f0e", alpha=0.85)
+    ax.bar(x + 2*width, rmse_d,   width, label="System D (seasonal)",
+           color="#9467bd", alpha=0.85)
 
     ax.set_xlabel("Station", fontsize=11)
     ax.set_ylabel("Test RMSE (°C)", fontsize=11)
     ax.set_title(title, fontsize=12, fontweight="bold")
     ax.set_xticks(x)
     ax.set_xticklabels(short, rotation=30, ha="right", fontsize=9)
-    ax.legend(fontsize=10)
-    ax.set_ylim(0, max(max(rmse_base), max(rmse_a), max(rmse_b)) * 1.2)
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, max(max(rmse_base), max(rmse_a), max(rmse_b),
+                       max(rmse_c), max(rmse_d)) * 1.2)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -545,22 +813,28 @@ def plot_test_rmse_by_experiment(all_results, save_path) -> None:
     rmse_base  = [r["metrics"]["Baseline"]["test"][1] for _, r in all_results]
     rmse_a     = [r["metrics"]["System A"]["test"][1] for _, r in all_results]
     rmse_b     = [r["metrics"]["System B"]["test"][1] for _, r in all_results]
+    rmse_c     = [r["metrics"]["System C"]["test"][1] for _, r in all_results]
+    rmse_d     = [r["metrics"]["System D"]["test"][1] for _, r in all_results]
 
     x = np.arange(len(exp_labels))
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(x, rmse_base, "o-",  label="Baseline (local)",
             color="#d62728", linewidth=2, markersize=8)
-    ax.plot(x, rmse_a,    "s-",  label="System A (distance)",
+    ax.plot(x, rmse_a,    "s-",  label="System A (distance, d_max)",
             color="#1f77b4", linewidth=2, markersize=8)
     ax.plot(x, rmse_b,    "^--", label="System B (correlation)",
             color="#2ca02c", linewidth=2, markersize=8)
+    ax.plot(x, rmse_c,    "D:",  label="System C (k-NN)",
+            color="#ff7f0e", linewidth=2, markersize=8)
+    ax.plot(x, rmse_d,    "P-.", label="System D (seasonal)",
+            color="#9467bd", linewidth=2, markersize=8)
 
     ax.set_xticks(x)
     ax.set_xticklabels(exp_labels, fontsize=10)
     ax.set_xlabel("Experiment (decreasing training set size)", fontsize=11)
     ax.set_ylabel("Mean Test RMSE (°C)", fontsize=11)
     ax.set_title("Mean Test RMSE vs Training Set Size\n"
-                 "Baseline vs System A vs System B",
+                 "Baseline vs Systems A / B / C / D",
                  fontsize=12, fontweight="bold")
     ax.legend(fontsize=10)
 
@@ -570,14 +844,19 @@ def plot_test_rmse_by_experiment(all_results, save_path) -> None:
     print(f"  Saved → {save_path}")
 
 
-def plot_convergence(mse_history_a, mse_history_b, title, save_path) -> None:
+def plot_convergence(mse_history_a, mse_history_b, mse_history_c, mse_history_d,
+                     title, save_path) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
     rounds = np.arange(1, len(mse_history_a) + 1)
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(rounds, mse_history_a, label="System A (distance)",
+    ax.plot(rounds, mse_history_a, label="System A (distance, d_max)",
             color="#1f77b4", linewidth=2)
     ax.plot(rounds, mse_history_b, label="System B (correlation)",
             color="#2ca02c", linewidth=2, linestyle="--")
+    ax.plot(rounds, mse_history_c, label="System C (k-NN)",
+            color="#ff7f0e", linewidth=2, linestyle=":")
+    ax.plot(rounds, mse_history_d, label="System D (seasonal)",
+            color="#9467bd", linewidth=2, linestyle="-.")
     ax.set_xlabel("FL Round", fontsize=11)
     ax.set_ylabel("Mean Training MSE (°C²)", fontsize=11)
     ax.set_title(title, fontsize=12, fontweight="bold")
@@ -646,7 +925,7 @@ def plot_sigma_heatmap(grid_results: list, save_path: str) -> None:
     ax.set_xlabel("sigma (km)", fontsize=11)
     ax.set_ylabel("alpha", fontsize=11)
     ax.set_title(
-        "Validation RMSE Heatmap — Experiment 3, System A\n"
+        "Validation RMSE Heatmap - Experiment 3, System A\n"
         f"Joint (alpha, sigma) search  |  d_max = {DMAX_KM:.0f} km",
         fontsize=12, fontweight="bold",
     )
@@ -673,13 +952,14 @@ def print_combined_summary(all_results: list) -> pd.DataFrame:
     """
     header = (f"\n  {'Experiment':<16s} {'System':<12s} "
               f"{'Train RMSE':>11s} {'Val RMSE':>10s} "
-              f"{'Test RMSE':>10s} {'Best Alpha':>11s} {'Best Sigma':>11s}")
+              f"{'Test RMSE':>10s} {'Best Alpha':>11s} "
+              f"{'Best Sigma':>11s} {'Best k':>7s}")
     print(header)
-    print("  " + "-" * 85)
+    print("  " + "-" * 95)
 
     rows = []
     for cfg, result in all_results:
-        for sys_name in ["Baseline", "System A", "System B"]:
+        for sys_name in ["Baseline", "System A", "System B", "System C", "System D"]:
             tr_rmse  = result["metrics"][sys_name]["train"][1]
             val_rmse = result["metrics"][sys_name]["val"][1]
             te_rmse  = result["metrics"][sys_name]["test"][1]
@@ -687,19 +967,32 @@ def print_combined_summary(all_results: list) -> pd.DataFrame:
             if sys_name == "System A":
                 alpha = result["best_alpha_a"]
                 sigma = result["best_sigma_a"]
+                k     = None
             elif sys_name == "System B":
                 alpha = result["best_alpha_b"]
                 sigma = result["best_sigma_b"]
+                k     = None
+            elif sys_name == "System C":
+                alpha = result["best_alpha_c"]
+                sigma = result["best_sigma_c"]
+                k     = result["best_k_c"]
+            elif sys_name == "System D":
+                alpha = result["best_alpha_d"]
+                sigma = result["best_sigma_d"]
+                k     = None
             else:
                 alpha = result["best_alpha_base"]
                 sigma = None
+                k     = None
 
             alpha_str = f"{alpha}"
             sigma_str = f"{sigma} km" if sigma is not None else "-"
+            k_str     = f"{k}"        if k     is not None else "-"
 
             print(f"  {cfg['label']:<16s} {sys_name:<12s} "
                   f"{tr_rmse:>11.4f} {val_rmse:>10.4f} "
-                  f"{te_rmse:>10.4f} {alpha_str:>11s} {sigma_str:>11s}")
+                  f"{te_rmse:>10.4f} {alpha_str:>11s} "
+                  f"{sigma_str:>11s} {k_str:>7s}")
 
             rows.append({
                 "experiment" : cfg["label"],
@@ -709,6 +1002,7 @@ def print_combined_summary(all_results: list) -> pd.DataFrame:
                 "test_rmse"  : round(te_rmse,  4),
                 "best_alpha" : alpha,
                 "best_sigma" : sigma if sigma is not None else "-",
+                "best_k"     : k     if k     is not None else "-",
             })
 
     return pd.DataFrame(rows)
@@ -722,13 +1016,16 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     print("=" * 65)
-    print("  FL Project — Phase 6: Running experiments")
+    print("  FL Project - Phase 6: Running experiments")
     print(f"  Experiments      : {len(EXPERIMENTS)}")
     print(f"  d_max (fixed)    : {DMAX_KM} km")
     print(f"  Alpha candidates : {ALPHA_CANDIDATES}")
     print(f"  Sigma candidates : {SIGMA_CANDIDATES} km")
-    print(f"  Grid size        : {len(ALPHA_CANDIDATES)} × {len(SIGMA_CANDIDATES)} "
+    print(f"  Grid size (A/B)  : {len(ALPHA_CANDIDATES)} × {len(SIGMA_CANDIDATES)} "
           f"= {len(ALPHA_CANDIDATES)*len(SIGMA_CANDIDATES)} combinations")
+    print(f"  Grid size (C)    : {len(ALPHA_CANDIDATES)} × {len(SIGMA_CANDIDATES)} × {len(K_CANDIDATES)} "
+          f"= {len(ALPHA_CANDIDATES)*len(SIGMA_CANDIDATES)*len(K_CANDIDATES)} combinations")
+    print(f"  k candidates     : {K_CANDIDATES}")
     print(f"  FL rounds        : {T_ROUNDS}")
     print("=" * 65)
 
@@ -738,7 +1035,7 @@ def main():
 
     for cfg in EXPERIMENTS:
         print("\n" + "=" * 65)
-        print(f"  Running Experiment {cfg['id']} — {cfg['label']}")
+        print(f"  Running Experiment {cfg['id']} - {cfg['label']}")
         print(f"  Train : {cfg['train_start']} → {cfg['train_end']}")
         print(f"  Val   : {cfg['val_start']}   → {cfg['val_end']}")
         print(f"  Test  : {cfg['test_start']}  → {cfg['test_end']}")
@@ -748,13 +1045,13 @@ def main():
         all_results.append((cfg, result))
 
         # Print per-experiment results table.
-        print(f"\n  Results — Experiment {cfg['id']} ({cfg['label']})")
+        print(f"\n  Results - Experiment {cfg['id']} ({cfg['label']})")
         metrics = result["metrics"]
         print(f"  {'System':<12s} {'Train MSE':>10s} {'Train RMSE':>11s} "
               f"{'Val MSE':>10s} {'Val RMSE':>10s} "
               f"{'Test MSE':>10s} {'Test RMSE':>10s}")
         print("  " + "-" * 76)
-        for sys_name in ["Baseline", "System A", "System B"]:
+        for sys_name in ["Baseline", "System A", "System B", "System C", "System D"]:
             tr  = metrics[sys_name]["train"]
             val = metrics[sys_name]["val"]
             te  = metrics[sys_name]["test"]
@@ -767,19 +1064,27 @@ def main():
         # HDD analysis - Experiment 1 only.
         if cfg["id"] == 1:
             print("\n" + "=" * 65)
-            print("  HDD Analysis — Experiment 1 (Test Set)")
+            print("  HDD Analysis - Experiment 1 (Test Set)")
             print("=" * 65)
             hdd_analysis.run(
                 data         = result["data"],
                 weights_base = result["weights_base"],
                 weights_a    = result["weights_a"],
                 weights_b    = result["weights_b"],
+                weights_c    = result["weights_c"],
+                weights_d    = result["weights_d"],
             )
-            # Update .npy files with best-sigma adjacency matrices.
+            # Update .npy files with best-parameter adjacency matrices.
             np.save(os.path.join(DATA_DIR, "adj_system_a.npy"), result["A_a"])
             np.save(os.path.join(DATA_DIR, "adj_system_b.npy"), result["A_b"])
+            np.save(os.path.join(DATA_DIR, "adj_system_c.npy"), result["A_c"])
+            np.save(os.path.join(DATA_DIR, "adj_system_d_winter.npy"), result["A_d_winter"])
+            np.save(os.path.join(DATA_DIR, "adj_system_d_summer.npy"), result["A_d_summer"])
             print(f"  Updated adj_system_a.npy  (sigma={result['best_sigma_a']} km)")
             print(f"  Updated adj_system_b.npy  (sigma={result['best_sigma_b']} km)")
+            print(f"  Updated adj_system_c.npy  "
+                  f"(k={result['best_k_c']}, sigma={result['best_sigma_c']} km)")
+            print(f"  Updated adj_system_d_*.npy  (sigma={result['best_sigma_d']} km, seasonal)")
 
         # Sigma heatmap - Experiment 3, System A only.
         if cfg["id"] == 3:
@@ -793,19 +1098,23 @@ def main():
             result["per_station_base"],
             result["per_station_a"],
             result["per_station_b"],
-            title=(f"Test RMSE per Station — Experiment {exp_id}: {cfg['label']}\n"
+            result["per_station_c"],
+            result["per_station_d"],
+            title=(f"Test RMSE per Station - Experiment {exp_id}: {cfg['label']}\n"
                    f"Train: {cfg['train_start']} → {cfg['train_end']}"),
             save_path=os.path.join(RESULTS_DIR,
                                    f"test_rmse_by_station_exp{exp_id}.png"),
         )
 
-    # Convergence plot — Experiment 1 only.
+    # Convergence plot - Experiment 1 only.
     _, result_exp1 = all_results[0]
     cfg_exp1       = all_results[0][0]
     plot_convergence(
         result_exp1["mse_history_a"],
         result_exp1["mse_history_b"],
-        title=(f"GTVMin Convergence — Experiment 1: {cfg_exp1['label']}\n"
+        result_exp1["mse_history_c"],
+        result_exp1["mse_history_d"],
+        title=(f"GTVMin Convergence - Experiment 1: {cfg_exp1['label']}\n"
                f"Mean Training MSE vs FL Round"),
         save_path=os.path.join(RESULTS_DIR, "convergence_exp1.png"),
     )
@@ -816,7 +1125,7 @@ def main():
     )
 
     print("\n" + "=" * 65)
-    print("  Combined Summary — All Experiments")
+    print("  Combined Summary - All Experiments")
     print("=" * 65)
     summary_df = print_combined_summary(all_results)
 

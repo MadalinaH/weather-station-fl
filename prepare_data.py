@@ -25,7 +25,7 @@ For each station:
 
      Note: ws_10min is excluded because two stations (Tampere Härmälä and
      Inari Saariselkä) have no wind speed measurements - dropping it keeps
-     the feature dimension identical across all 9 FL clients.
+     the feature dimension identical across all 15 FL clients.
 
   3. Split chronologically (no shuffling - time series order must be preserved):
        Train      : 2022-01-01 → 2023-12-31
@@ -108,15 +108,21 @@ TEST_END    = "2024-12-31"
 
 # Station name → CSV filename mapping (must match standardise_data.py output).
 STATIONS = {
-    "Helsinki Kaisaniemi" : "helsinki_kaisaniemi.csv",
-    "Turku Artukainen"    : "turku_artukainen.csv",
-    "Oulu Vihreäsaari"   : "oulu_vihreasaari.csv",
-    "Tampere Härmälä"    : "tampere_harmala.csv",
-    "Jyväskylä Airport"  : "jyvaskyla_airport.csv",
-    "Kuopio Maaninka"     : "kuopio_maaninka.csv",
-    "Rovaniemi Apukka"    : "rovaniemi_apukka.csv",
-    "Sodankylä"           : "sodankyla.csv",
-    "Inari Saariselkä"   : "inari_saariselka.csv",
+    "Helsinki Kaisaniemi"       : "helsinki.csv",
+    "Turku Artukainen"          : "turku.csv",
+    "Oulu Vihreäsaari"         : "oulu.csv",
+    "Tampere Härmälä"          : "tampere.csv",
+    "Jyväskylä Airport"        : "jyvaskyla.csv",
+    "Kuopio Maaninka"           : "kuopio.csv",
+    "Rovaniemi Apukka"          : "rovaniemi.csv",
+    "Sodankylä"                 : "sodankyla.csv",
+    "Inari Saariselkä"         : "inari.csv",
+    "Hanko Tulliniemi"          : "hanko.csv",
+    "Kajaani Airport"           : "kajaani.csv",
+    "Kittilä Airport"           : "kittila.csv",
+    "Muonio Oustajärvi"        : "muonio.csv",
+    "Pelkosenniemi Pyhätunturi" : "pelkosenniemi.csv",
+    "Raahe Nahkiainen"          : "raahe.csv",
 }
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -323,11 +329,11 @@ def normalise(splits: dict) -> dict:
 
 def main():
     """
-    Run the full data preparation pipeline for all 9 stations and save
+    Run the full data preparation pipeline for all 15 stations and save
     the result as a pickle file.
     """
     print("=" * 65)
-    print("  FL Project — Phase 3: Preparing data")
+    print("  FL Project - Phase 3: Preparing data")
     print(f"  Features    : {FEATURE_COLS}  ({len(FEATURE_COLS)} total)")
     print(f"  Label       : next-day {LABEL_COL}")
     print(f"  Train       : {TRAIN_START} → {TRAIN_END}")

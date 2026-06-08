@@ -1,10 +1,16 @@
-experiment,system,train_rmse,val_rmse,test_rmse,best_alpha,best_sigma
-Full data,Baseline,5.16,5.5561,5.3012,100.0,-
-Full data,System A,5.16,5.5561,5.3012,0.0001,50.0
-Full data,System B,5.16,5.5561,5.3012,0.0001,50.0
-Reduced data,Baseline,5.3231,5.5097,5.1436,0.0001,-
-Reduced data,System A,5.3231,5.5097,5.1436,0.0001,50.0
-Reduced data,System B,5.3231,5.5097,5.1436,0.0001,50.0
-Minimal data,Baseline,4.1438,2.6411,3.2273,0.5,-
-Minimal data,System A,4.1671,2.6189,3.2422,100.0,150.0
-Minimal data,System B,4.1669,2.6189,3.2415,100.0,150.0
+experiment,system,train_rmse,val_rmse,test_rmse,best_alpha,best_sigma,best_k
+Full data,Baseline,4.8938,5.252,4.9581,50.0,-,-
+Full data,System A,4.8955,5.2502,4.9589,100.0,50.0,-
+Full data,System B,4.8955,5.2501,4.9588,100.0,50.0,-
+Full data,System C,4.8955,5.2501,4.9587,100.0,50.0,2
+Full data,System D,4.8955,5.2501,4.9587,50.0,50.0,-
+Reduced data,Baseline,5.0244,5.2665,4.8568,100.0,-,-
+Reduced data,System A,5.029,5.26,4.8491,50.0,50.0,-
+Reduced data,System B,5.0289,5.2599,4.8491,50.0,50.0,-
+Reduced data,System C,5.029,5.26,4.8491,50.0,50.0,5
+Reduced data,System D,5.0273,5.2599,4.8499,10.0,50.0,-
+Minimal data,Baseline,3.9461,2.6509,3.2357,0.5,-,-
+Minimal data,System A,3.9789,2.6302,3.2567,50.0,200.0,-
+Minimal data,System B,3.9785,2.6301,3.2562,50.0,200.0,-
+Minimal data,System C,3.9821,2.6242,3.2605,50.0,200.0,4
+Minimal data,System D,3.9793,2.6313,3.2577,50.0,100.0,-

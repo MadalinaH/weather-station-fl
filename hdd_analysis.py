@@ -137,9 +137,11 @@ def fit_baseline(data: dict) -> dict:
 def run_hdd_analysis(data: dict,
                      weights_base: dict,
                      weights_a: dict,
-                     weights_b: dict) -> pd.DataFrame:
+                     weights_b: dict,
+                     weights_c: dict,
+                     weights_d: dict) -> pd.DataFrame:
     """
-    Compute HDD metrics for all stations and all three systems on the
+    Compute HDD metrics for all stations and all four systems on the
     test split.
 
     For each station and system:
@@ -155,6 +157,8 @@ def run_hdd_analysis(data: dict,
     weights_base : Baseline weight dict
     weights_a    : System A weight dict
     weights_b    : System B weight dict
+    weights_c    : System C weight dict
+    weights_d    : System D weight dict
 
     Returns
     -------
@@ -164,18 +168,20 @@ def run_hdd_analysis(data: dict,
     rows = []
 
     for station in data:
-        X_test = data[station]["X_test"]   # shape (n_test, 3)
-        y_test = data[station]["y_test"]   # shape (n_test,)
+        X_test = data[station]["X_test"]
+        y_test = data[station]["y_test"]
 
         # Actual HDD from true labels - same for all systems.
-        hdd_actual = compute_hdd(y_test)
+        hdd_actual      = compute_hdd(y_test)
         mean_actual_hdd = float(np.mean(hdd_actual))
 
         for sys_name, weights in [("Baseline", weights_base),
                                    ("System A", weights_a),
-                                   ("System B", weights_b)]:
-            y_pred   = X_test @ weights[station]     # predicted temperatures
-            hdd_pred = compute_hdd(y_pred)           # convert to HDD
+                                   ("System B", weights_b),
+                                   ("System C", weights_c),
+                                   ("System D", weights_d)]:
+            y_pred   = X_test @ weights[station]
+            hdd_pred = compute_hdd(y_pred)
 
             mean_pred_hdd = float(np.mean(hdd_pred))
             hdd_mae       = float(np.mean(np.abs(hdd_pred - hdd_actual)))
@@ -209,22 +215,25 @@ def print_hdd_table(df: pd.DataFrame) -> None:
     stations = df["station"].unique()
 
     header = (f"\n  {'Station':<25s} | {'Actual':>10s} | "
-              f"{'Baseline':>12s} | {'Sys A':>9s} | {'Sys B':>9s} | "
-              f"{'MAE (A)':>9s}")
+              f"{'Baseline':>10s} | {'Sys A':>9s} | {'Sys B':>9s} | "
+              f"{'Sys C':>9s} | {'Sys D':>9s} | {'MAE (A)':>9s} | {'MAE (D)':>9s}")
     print(header)
-    print("  " + "-" * 83)
+    print("  " + "-" * 114)
 
     for station in stations:
-        sub     = df[df["station"] == station].set_index("system")
-        actual  = sub.loc["Baseline", "mean_actual_hdd"]   # same for all
-        base_p  = sub.loc["Baseline", "mean_predicted_hdd"]
-        a_p     = sub.loc["System A", "mean_predicted_hdd"]
-        b_p     = sub.loc["System B", "mean_predicted_hdd"]
-        mae_a   = sub.loc["System A", "hdd_mae"]
+        sub    = df[df["station"] == station].set_index("system")
+        actual = sub.loc["Baseline", "mean_actual_hdd"]
+        base_p = sub.loc["Baseline", "mean_predicted_hdd"]
+        a_p    = sub.loc["System A", "mean_predicted_hdd"]
+        b_p    = sub.loc["System B", "mean_predicted_hdd"]
+        c_p    = sub.loc["System C", "mean_predicted_hdd"]
+        d_p    = sub.loc["System D", "mean_predicted_hdd"]
+        mae_a  = sub.loc["System A", "hdd_mae"]
+        mae_d  = sub.loc["System D", "hdd_mae"]
 
         print(f"  {station:<25s} | {actual:>10.3f} | "
-              f"{base_p:>12.3f} | {a_p:>9.3f} | {b_p:>9.3f} | "
-              f"{mae_a:>9.3f}")
+              f"{base_p:>10.3f} | {a_p:>9.3f} | {b_p:>9.3f} | "
+              f"{c_p:>9.3f} | {d_p:>9.3f} | {mae_a:>9.3f} | {mae_d:>9.3f}")
 
 
 # ---------------------------------------------------------------------------
@@ -258,33 +267,41 @@ def plot_hdd_per_station(df: pd.DataFrame, save_path: str) -> None:
                    ["mean_predicted_hdd"].values[0] for s in stations]
     b_hdd       = [df[(df["station"] == s) & (df["system"] == "System B")]
                    ["mean_predicted_hdd"].values[0] for s in stations]
+    c_hdd       = [df[(df["station"] == s) & (df["system"] == "System C")]
+                   ["mean_predicted_hdd"].values[0] for s in stations]
+    d_hdd       = [df[(df["station"] == s) & (df["system"] == "System D")]
+                   ["mean_predicted_hdd"].values[0] for s in stations]
 
     x     = np.arange(len(stations))
-    width = 0.2
+    width = 0.13
 
-    fig, ax = plt.subplots(figsize=(13, 5))
+    fig, ax = plt.subplots(figsize=(15, 5))
 
-    ax.bar(x - 1.5*width, actual_hdd, width, label="Actual",
+    ax.bar(x - 2.5*width, actual_hdd, width, label="Actual",
            color="#555555", alpha=0.85)
-    ax.bar(x - 0.5*width, base_hdd,   width, label="Baseline (local)",
+    ax.bar(x - 1.5*width, base_hdd,   width, label="Baseline (local)",
            color="#d62728", alpha=0.85)
-    ax.bar(x + 0.5*width, a_hdd,      width, label="System A (distance)",
+    ax.bar(x - 0.5*width, a_hdd,      width, label="System A (distance, d_max)",
            color="#1f77b4", alpha=0.85)
-    ax.bar(x + 1.5*width, b_hdd,      width, label="System B (correlation)",
+    ax.bar(x + 0.5*width, b_hdd,      width, label="System B (correlation)",
            color="#2ca02c", alpha=0.85)
+    ax.bar(x + 1.5*width, c_hdd,      width, label="System C (k-NN)",
+           color="#ff7f0e", alpha=0.85)
+    ax.bar(x + 2.5*width, d_hdd,      width, label="System D (seasonal)",
+           color="#9467bd", alpha=0.85)
 
     ax.set_xlabel("Station", fontsize=11)
     ax.set_ylabel("Mean Daily HDD (°C·days)", fontsize=11)
     ax.set_title(
-        "Mean Daily Heating Degree Days — Test Set (Experiment 1)\n"
+        "Mean Daily Heating Degree Days - Test Set (Experiment 1)\n"
         "FMI standard: HDD = max(17 - T, 0) if T < 12 °C, else 0",
         fontsize=12, fontweight="bold"
     )
     ax.set_xticks(x)
     ax.set_xticklabels(short, rotation=30, ha="right", fontsize=9)
-    ax.legend(fontsize=10)
-    ax.set_ylim(0, max(max(actual_hdd), max(base_hdd),
-                       max(a_hdd), max(b_hdd)) * 1.25)
+    ax.legend(fontsize=9)
+    ax.set_ylim(0, max(max(actual_hdd), max(base_hdd), max(a_hdd),
+                       max(b_hdd), max(c_hdd), max(d_hdd)) * 1.25)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -298,7 +315,7 @@ def plot_hdd_per_station(df: pd.DataFrame, save_path: str) -> None:
         "  test set (2024-07-01 → 2024-12-31). HDD is computed from predicted\n"
         "  next-day temperatures using the FMI standard (indoor baseline 17 °C,\n"
         "  heating threshold 12 °C). Bars show Actual HDD (from true labels)\n"
-        "  alongside Baseline, System A, and System B predictions."
+        "  alongside Baseline, System A, System B, System C, and System D predictions."
     )
 
 
@@ -309,13 +326,15 @@ def plot_hdd_per_station(df: pd.DataFrame, save_path: str) -> None:
 def run(data: dict = None,
         weights_base: dict = None,
         weights_a: dict = None,
-        weights_b: dict = None) -> pd.DataFrame:
+        weights_b: dict = None,
+        weights_c: dict = None,
+        weights_d: dict = None) -> pd.DataFrame:
     """
     Run the full HDD analysis pipeline.
 
     Can be called in two ways:
       1. With pre-computed weights (from run_experiment.py) - no re-training.
-      2. Without arguments — loads data and re-trains from scratch using
+      2. Without arguments - loads data and re-trains from scratch using
          Experiment 1 best-alpha values (standalone mode).
 
     Parameters
@@ -324,6 +343,8 @@ def run(data: dict = None,
     weights_base : Baseline weights (optional - recomputed if None)
     weights_a    : System A weights (optional - recomputed if None)
     weights_b    : System B weights (optional - recomputed if None)
+    weights_c    : System C weights (optional - recomputed if None)
+    weights_d    : System D weights (optional - recomputed if None)
 
     Returns
     -------
@@ -338,7 +359,8 @@ def run(data: dict = None,
             data = pickle.load(f)
 
     # Train weights if not passed in
-    if weights_base is None or weights_a is None or weights_b is None:
+    if any(w is None for w in [weights_base, weights_a, weights_b, weights_c, weights_d]):
+        from build_network import build_adj_system_c as _build_c
         print("  Building distance matrix and adjacency matrices …")
         D   = build_distance_matrix()
         A_a = build_adj_system_a(D)
@@ -354,6 +376,9 @@ def run(data: dict = None,
             t2m_series[station] = s
         A_b = build_adj_system_b(D, t2m_series)
 
+        # System C: use default k=3, sigma=100km
+        A_c = _build_c(D, k=3, sigma=100.0)
+
         print(f"  Training Baseline …")
         weights_base = fit_baseline(data)
 
@@ -363,13 +388,26 @@ def run(data: dict = None,
         print(f"  Training System B (alpha={ALPHA_SYSTEM_B}, T={T_ROUNDS}) …")
         weights_b, _ = run_fl(data, A_b, alpha=ALPHA_SYSTEM_B, T=T_ROUNDS)
 
+        print(f"  Training System C (alpha={ALPHA_SYSTEM_A}, k=3, T={T_ROUNDS}) …")
+        weights_c, _ = run_fl(data, A_c, alpha=ALPHA_SYSTEM_A, T=T_ROUNDS)
+
+        # System D: seasonal graphs, same sigma=100km, k split by WINTER/SUMMER months
+        from build_network import (build_adj_seasonal as _build_seasonal,
+                                   WINTER_MONTHS as _W, SUMMER_MONTHS as _S,
+                                   build_distance_matrix as _bdm)
+        from fl_algorithm import run_fl_seasonal as _run_seasonal
+        A_d_w = _build_seasonal(D, t2m_series, _W, sigma=100.0)
+        A_d_s = _build_seasonal(D, t2m_series, _S, sigma=100.0)
+        print(f"  Training System D (alpha={ALPHA_SYSTEM_A}, seasonal, T={T_ROUNDS}) …")
+        weights_d, _ = _run_seasonal(data, A_d_w, A_d_s, alpha=ALPHA_SYSTEM_A, T=T_ROUNDS)
+
     # Compute HDD metrics
     print("  Computing HDD metrics …")
-    hdd_df = run_hdd_analysis(data, weights_base, weights_a, weights_b)
+    hdd_df = run_hdd_analysis(data, weights_base, weights_a, weights_b, weights_c, weights_d)
 
     # Print table
     print("\n" + "=" * 65)
-    print("  HDD Summary — Test Set (Experiment 1)")
+    print("  HDD Summary - Test Set (Experiment 1)")
     print("  Units: °C·days  |  FMI standard: max(17-T,0) if T<12°C")
     print("=" * 65)
     print_hdd_table(hdd_df)

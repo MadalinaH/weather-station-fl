@@ -57,7 +57,7 @@ def evaluate(data: dict,
         Mean RMSE averaged across all stations.
     """
     if split not in ("train", "val", "test"):
-        raise ValueError(f"split must be 'train', 'val', or 'test' — got '{split}'")
+        raise ValueError(f"split must be 'train', 'val', or 'test' - got '{split}'")
 
     results = {}
 

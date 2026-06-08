@@ -81,15 +81,21 @@ import pandas as pd
 
 # Maps our internal project label → input CSV filename (in DATA_DIR).
 STATIONS = {
-    "Helsinki Kaisaniemi" : "helsinki_kaisaniemi.csv",
-    "Turku Artukainen"    : "turku_artukainen.csv",
-    "Oulu Vihreäsaari"   : "oulu_vihreasaari.csv",
-    "Tampere Härmälä"    : "tampere_harmala.csv",
-    "Jyväskylä Airport"  : "jyvaskyla_airport.csv",
-    "Kuopio Maaninka"     : "kuopio_maaninka.csv",
-    "Rovaniemi Apukka"    : "rovaniemi_apukka.csv",
-    "Sodankylä"           : "sodankyla.csv",
-    "Inari Saariselkä"   : "inari_saariselka.csv",
+    "Helsinki Kaisaniemi"       : "helsinki.csv",
+    "Turku Artukainen"          : "turku.csv",
+    "Oulu Vihreäsaari"         : "oulu.csv",
+    "Tampere Härmälä"          : "tampere.csv",
+    "Jyväskylä Airport"        : "jyvaskyla.csv",
+    "Kuopio Maaninka"           : "kuopio.csv",
+    "Rovaniemi Apukka"          : "rovaniemi.csv",
+    "Sodankylä"                 : "sodankyla.csv",
+    "Inari Saariselkä"         : "inari.csv",
+    "Hanko Tulliniemi"          : "hanko.csv",
+    "Kajaani Airport"           : "kajaani.csv",
+    "Kittilä Airport"           : "kittila.csv",
+    "Muonio Oustajärvi"        : "muonio.csv",
+    "Pelkosenniemi Pyhätunturi" : "pelkosenniemi.csv",
+    "Raahe Nahkiainen"          : "raahe.csv",
 }
 
 # FMI portal column names → our internal names.
@@ -101,7 +107,7 @@ COLUMN_RENAME = {
     "Minimum temperature [°C]"  : "tmin_raw",
 }
 
-# Full project date range — used to reindex so every day has a row.
+# Full project date range - used to reindex so every day has a row.
 DATE_START = "2022-01-01"
 DATE_END   = "2024-12-31"
 
@@ -256,7 +262,7 @@ def main():
       3. Print and save a missing-value summary.
     """
     print("=" * 65)
-    print("  FL Project — Phase 1: Standardising FMI portal CSVs")
+    print("  FL Project - Phase 1: Standardising FMI portal CSVs")
     print(f"  Date range  : {DATE_START} → {DATE_END}")
     print(f"  Stations    : {len(STATIONS)}")
     print(f"  Data dir    : {DATA_DIR}")
